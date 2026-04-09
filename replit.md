@@ -21,7 +21,7 @@ A web dashboard for managing a self-hosted WinGet package repository. Users can 
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
-- **Upstream search**: winget.run public API
+- **Upstream search**: GitHub Contents API (microsoft/winget-pkgs) with static popular-packages cache
 
 ## Key Commands
 
@@ -37,5 +37,5 @@ A web dashboard for managing a self-hosted WinGet package repository. Users can 
 - `lib/api-spec/openapi.yaml` — OpenAPI contract (source of truth)
 - `lib/db/src/schema/packages.ts` — DB schema for local packages
 - `artifacts/api-server/src/routes/packages.ts` — Package CRUD routes
-- `artifacts/api-server/src/routes/winget.ts` — Upstream winget.run search proxy
+- `artifacts/api-server/src/routes/winget.ts` — Upstream winget search (GitHub Contents API + static popular packages)
 - `artifacts/winget-dashboard/src/` — React frontend

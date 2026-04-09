@@ -3,7 +3,187 @@ import { SearchWingetQueryParams, SearchWingetResponse } from "@workspace/api-zo
 
 const router: IRouter = Router();
 
-const WINGET_API_BASE = "https://winget.run/api/v2/packages";
+const GITHUB_API = "https://api.github.com";
+const REPO = "microsoft/winget-pkgs";
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+interface GitHubContent {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+}
+
+interface CacheEntry<T> {
+  data: T;
+  ts: number;
+}
+
+const publishersCache = new Map<string, CacheEntry<string[]>>();
+const packagesCache = new Map<string, CacheEntry<string[]>>();
+
+// Popular packages for instant results without API calls.
+// Format: [packageId, friendlyName, ...searchTerms]
+const POPULAR_PACKAGES: [string, string, ...string[]][] = [
+  ["7zip.7zip", "7-Zip", "7zip", "zip", "archive"],
+  ["Ablaze.Floorp", "Floorp Browser", "floorp", "browser"],
+  ["Adobe.Acrobat.Reader.64-bit", "Adobe Acrobat Reader", "acrobat", "pdf", "adobe reader"],
+  ["Audacity.Audacity", "Audacity", "audacity", "audio", "sound editor"],
+  ["Balena.Etcher", "balenaEtcher", "etcher", "balena", "usb", "flash"],
+  ["Brave.Brave", "Brave Browser", "brave", "browser"],
+  ["BurntSushi.ripgrep.MSVC", "ripgrep", "ripgrep", "rg", "grep"],
+  ["Canonical.Ubuntu", "Ubuntu (WSL)", "ubuntu", "wsl"],
+  ["Cloudflare.Warp", "Cloudflare WARP", "warp", "cloudflare", "vpn"],
+  ["Discord.Discord", "Discord", "discord", "chat"],
+  ["Docker.DockerDesktop", "Docker Desktop", "docker", "container"],
+  ["Elgato.4KCaptureUtility", "Elgato 4K Capture Utility", "elgato", "capture"],
+  ["Figma.Figma", "Figma", "figma", "design"],
+  ["FiloSottile.mkcert", "mkcert", "mkcert", "cert", "ssl"],
+  ["Git.Git", "Git", "git", "version control"],
+  ["GitHub.GitHubDesktop", "GitHub Desktop", "github desktop", "github"],
+  ["GitHub.cli", "GitHub CLI", "gh", "github cli"],
+  ["GIMP.GIMP", "GIMP", "gimp", "image editor", "photo"],
+  ["Google.Chrome", "Google Chrome", "chrome", "google chrome", "browser"],
+  ["Inkscape.Inkscape", "Inkscape", "inkscape", "svg", "vector"],
+  ["JanDeDobbeleer.OhMyPosh", "Oh My Posh", "ohmyposh", "prompt"],
+  ["JetBrains.IntelliJIDEA.Community", "IntelliJ IDEA Community", "intellij", "java ide"],
+  ["JetBrains.PyCharm.Community", "PyCharm Community", "pycharm", "python ide"],
+  ["JetBrains.WebStorm", "WebStorm", "webstorm", "js ide"],
+  ["Kubernetes.kubectl", "kubectl", "kubectl", "kubernetes", "k8s"],
+  ["LGUG2Z.komorebi", "komorebi", "komorebi", "tiling", "window manager"],
+  ["Microsoft.AzureCLI", "Azure CLI", "az", "azure cli", "azure"],
+  ["Microsoft.AzureDataStudio", "Azure Data Studio", "azure data studio", "ads"],
+  ["Microsoft.DotNet.Runtime.8", ".NET Runtime 8", "dotnet", ".net", "dotnet runtime"],
+  ["Microsoft.DotNet.SDK.9", ".NET SDK 9", "dotnet sdk", ".net sdk"],
+  ["Microsoft.Edge", "Microsoft Edge", "edge", "browser"],
+  ["Microsoft.Git", "Git for Windows (Microsoft build)", "git windows"],
+  ["Microsoft.OneDrive", "OneDrive", "onedrive", "cloud storage"],
+  ["Microsoft.OpenSSH.Beta", "OpenSSH", "openssh", "ssh"],
+  ["Microsoft.PowerShell", "PowerShell", "powershell", "pwsh"],
+  ["Microsoft.PowerToys", "PowerToys", "powertoys"],
+  ["Microsoft.SQLServerManagementStudio", "SSMS", "ssms", "sql server management studio"],
+  ["Microsoft.Teams", "Microsoft Teams", "teams", "ms teams"],
+  ["Microsoft.VisualStudio.2022.Community", "Visual Studio 2022 Community", "visual studio", "vs2022"],
+  ["Microsoft.VisualStudioCode", "Visual Studio Code", "vscode", "vs code", "visual studio code", "code"],
+  ["Microsoft.WindowsTerminal", "Windows Terminal", "windows terminal", "terminal", "wt"],
+  ["Mobaxterm.Mobaxterm", "MobaXterm", "mobaxterm", "ssh client"],
+  ["Mozilla.Firefox", "Mozilla Firefox", "firefox", "browser"],
+  ["Mozilla.Firefox.ESR", "Mozilla Firefox ESR", "firefox esr"],
+  ["Neovim.Neovim", "Neovim", "neovim", "nvim", "vim"],
+  ["Notepad++.Notepad++", "Notepad++", "notepad++", "notepad", "text editor"],
+  ["OBSProject.OBSStudio", "OBS Studio", "obs", "streaming", "recording"],
+  ["OpenJS.NodeJS", "Node.js LTS", "nodejs", "node", "npm"],
+  ["OpenJS.NodeJS.LTS", "Node.js LTS", "nodejs lts", "node lts"],
+  ["Oracle.JDK.21", "Oracle JDK 21", "jdk", "java"],
+  ["Postman.Postman", "Postman", "postman", "api client"],
+  ["Python.Python.3.12", "Python 3.12", "python", "python3"],
+  ["Python.Python.3.13", "Python 3.13", "python 3.13"],
+  ["PuTTY.PuTTY", "PuTTY", "putty", "ssh"],
+  ["RARLab.WinRAR", "WinRAR", "winrar", "archive", "rar"],
+  ["Rustlang.Rust.GNU", "Rust (GNU)", "rust", "rustup"],
+  ["Rustlang.Rustup", "rustup", "rustup", "rust"],
+  ["ShareX.ShareX", "ShareX", "sharex", "screenshot", "screen capture"],
+  ["SlackTechnologies.Slack", "Slack", "slack", "chat"],
+  ["Spotify.Spotify", "Spotify", "spotify", "music"],
+  ["Telegram.TelegramDesktop", "Telegram Desktop", "telegram", "chat"],
+  ["TorProject.TorBrowser", "Tor Browser", "tor", "tor browser", "browser"],
+  ["valinet.ExplorerPatcher", "ExplorerPatcher", "explorerpatcher"],
+  ["Valve.Steam", "Steam", "steam", "gaming"],
+  ["VideoLAN.VLC", "VLC Media Player", "vlc", "media player"],
+  ["vim.vim", "Vim", "vim", "text editor"],
+  ["WiresharkFoundation.Wireshark", "Wireshark", "wireshark", "network", "packet"],
+  ["WinSCP.WinSCP", "WinSCP", "winscp", "sftp", "ftp"],
+  ["Zoom.Zoom", "Zoom", "zoom", "video call"],
+];
+
+async function fetchGitHubContents(path: string): Promise<GitHubContent[]> {
+  const url = `${GITHUB_API}/repos/${REPO}/contents/${path}`;
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "winget-repo-dashboard/1.0",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) return [];
+  const data = (await response.json()) as unknown;
+  return Array.isArray(data) ? (data as GitHubContent[]) : [];
+}
+
+async function getPublishers(letter: string): Promise<string[]> {
+  const cached = publishersCache.get(letter);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+  const contents = await fetchGitHubContents(`manifests/${letter}`);
+  const publishers = contents.filter((c) => c.type === "dir").map((c) => c.name);
+  publishersCache.set(letter, { data: publishers, ts: Date.now() });
+  return publishers;
+}
+
+async function getPackages(letter: string, publisher: string): Promise<string[]> {
+  const key = `${letter}/${publisher}`;
+  const cached = packagesCache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+  const contents = await fetchGitHubContents(`manifests/${letter}/${publisher}`);
+  const packages = contents.filter((c) => c.type === "dir").map((c) => c.name);
+  packagesCache.set(key, { data: packages, ts: Date.now() });
+  return packages;
+}
+
+function camelToWords(name: string): string {
+  return name
+    .replace(/([A-Z][a-z]+|[A-Z]+(?=[A-Z][a-z]))/g, " $1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function scorePublisher(q: string, pub: string): number {
+  const p = pub.toLowerCase();
+  if (p === q) return 100;
+  if (p.startsWith(q)) return 90;
+  if (q.startsWith(p)) return 80;
+  if (p.includes(q)) return 60;
+  if (q.includes(p)) return 50;
+  const qWords = q.split(/[\s.]/g).filter(Boolean);
+  if (qWords.every((w) => p.includes(w))) return 40;
+  if (qWords.some((w) => p.includes(w))) return 20;
+  return 0;
+}
+
+function scorePackage(query: string, packageId: string, packageName: string, publisher: string): number {
+  const q = query.toLowerCase();
+  const id = packageId.toLowerCase();
+  const name = packageName.toLowerCase();
+  const pub = publisher.toLowerCase();
+  if (id === q) return 100;
+  if (id.startsWith(q)) return 90;
+  if (name === q || pub === q) return 85;
+  if (id.includes(q)) return 70;
+  if (name.includes(q) || pub.includes(q)) return 60;
+  const words = q.split(/[\s.]/g).filter(Boolean);
+  if (words.length > 1 && words.every((w) => id.includes(w))) return 55;
+  if (words.some((w) => w.length > 3 && (id.includes(w) || name.includes(w)))) return 30;
+  return 0;
+}
+
+/** Search the static popular packages list. Returns scored results. */
+function searchPopularPackages(query: string): Array<{ packageId: string; name: string; publisher: string; version: string; description: null; license: null; homepage: null; _score: number }> {
+  const q = query.toLowerCase();
+  const results = [];
+  for (const [packageId, friendlyName, ...terms] of POPULAR_PACKAGES) {
+    const publisher = packageId.split(".")[0];
+    // Score: check friendly name, packageId, and all search terms
+    let best = scorePackage(q, packageId, friendlyName, publisher);
+    for (const term of terms) {
+      if (term.includes(q) || q.includes(term)) {
+        const s = q === term ? 95 : q.startsWith(term) || term.startsWith(q) ? 85 : 60;
+        if (s > best) best = s;
+      }
+    }
+    if (best > 0) {
+      results.push({ packageId, name: friendlyName, publisher, version: "latest", description: null, license: null, homepage: null, _score: best });
+    }
+  }
+  return results;
+}
 
 router.get("/winget/search", async (req, res): Promise<void> => {
   const parsed = SearchWingetQueryParams.safeParse(req.query);
@@ -13,39 +193,79 @@ router.get("/winget/search", async (req, res): Promise<void> => {
   }
 
   const { q, limit = 30 } = parsed.data;
+  const query = q.trim();
+
+  if (!query) {
+    res.json([]);
+    return;
+  }
 
   try {
-    const url = `${WINGET_API_BASE}?query=${encodeURIComponent(q)}&limit=${limit}`;
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "winget-repo-dashboard/1.0",
-      },
-    });
+    const seen = new Set<string>();
+    const results: Array<{ packageId: string; name: string; publisher: string; version: string; description: null; license: null; homepage: null; _score: number }> = [];
 
-    if (!response.ok) {
-      req.log.warn({ status: response.status }, "winget.run API returned non-OK");
-      res.status(502).json({ error: "Upstream Winget API error" });
-      return;
+    // 1. Search static popular packages first (fast, no API calls)
+    for (const r of searchPopularPackages(query)) {
+      seen.add(r.packageId);
+      results.push(r);
     }
 
-    const raw = await response.json() as { Packages?: unknown[] };
-    const packages = raw?.Packages ?? [];
+    // 2. Supplement with live GitHub API search
+    const queryLower = query.toLowerCase();
+    const lettersToSearch = new Set<string>();
+    const addLetter = (s: string) => {
+      if (s) {
+        const l = s[0].toLowerCase();
+        if (/^[a-z]$/.test(l)) lettersToSearch.add(l);
+      }
+    };
+    addLetter(query);
+    query.split(/[\s.]/g).forEach(addLetter);
 
-    const mapped = (packages as Array<Record<string, unknown>>).map((pkg) => ({
-      packageId: `${pkg["Id"] ?? ""}`,
-      name: `${pkg["Name"] ?? ""}`,
-      publisher: `${pkg["Publisher"] ?? ""}`,
-      version: `${pkg["Latest"]?.toString() ?? pkg["Version"]?.toString() ?? ""}`,
-      description: pkg["Description"] ? `${pkg["Description"]}` : null,
-      license: pkg["License"] ? `${pkg["License"]}` : null,
-      homepage: pkg["Homepage"] ? `${pkg["Homepage"]}` : null,
-    }));
+    for (const letter of lettersToSearch) {
+      let publishers: string[];
+      try {
+        publishers = await getPublishers(letter);
+      } catch {
+        continue;
+      }
 
-    res.json(SearchWingetResponse.parse(mapped));
+      // Score publishers, take top 5 most relevant
+      const scoredPublishers = publishers
+        .map((pub) => ({ pub, score: scorePublisher(queryLower, pub) }))
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      for (const { pub: publisher } of scoredPublishers) {
+        if (results.length >= limit * 3) break;
+        let packages: string[];
+        try {
+          packages = await getPackages(letter, publisher);
+        } catch {
+          continue;
+        }
+
+        for (const pkg of packages) {
+          if (results.length >= limit * 3) break;
+          const packageId = `${publisher}.${pkg}`;
+          if (seen.has(packageId)) continue;
+          const name = camelToWords(pkg);
+          const s = scorePackage(query, packageId, name, publisher);
+          if (s > 0) {
+            seen.add(packageId);
+            results.push({ packageId, name, publisher, version: "latest", description: null, license: null, homepage: null, _score: s });
+          }
+        }
+      }
+    }
+
+    results.sort((a, b) => b._score - a._score);
+    const topResults = results.slice(0, limit).map(({ _score: _s, ...rest }) => rest);
+    res.json(SearchWingetResponse.parse(topResults));
   } catch (err) {
-    req.log.error({ err }, "Error fetching from winget.run");
-    res.status(502).json({ error: "Failed to reach upstream Winget API" });
+    req.log.error({ err }, "Error searching winget packages");
+    res.status(502).json({ error: "Failed to search winget packages" });
   }
 });
 
