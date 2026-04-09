@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Winget Repo Manager API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: packages
+    description: Local repo package operations
+  - name: winget
+    description: Official winget repo search
 paths:
   /healthz:
     get:
@@ -24,6 +28,115 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /winget/search:
+    get:
+      operationId: searchWinget
+      tags: [winget]
+      summary: Search official Winget community repo
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WingetPackage"
+
+  /packages:
+    get:
+      operationId: listPackages
+      tags: [packages]
+      summary: List packages in the local repo
+      responses:
+        "200":
+          description: List of packages in the local repo
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LocalPackage"
+    post:
+      operationId: addPackage
+      tags: [packages]
+      summary: Add a package to the local repo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddPackageBody"
+      responses:
+        "201":
+          description: Package added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalPackage"
+
+  /packages/{id}:
+    get:
+      operationId: getPackage
+      tags: [packages]
+      summary: Get a single package
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Package found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalPackage"
+        "404":
+          description: Not found
+    delete:
+      operationId: removePackage
+      tags: [packages]
+      summary: Remove a package from the local repo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /packages/stats:
+    get:
+      operationId: getPackageStats
+      tags: [packages]
+      summary: Get package statistics summary
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageStats"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +147,92 @@ components:
       required:
         - status
 
+    WingetPackage:
+      type: object
+      properties:
+        packageId:
+          type: string
+        name:
+          type: string
+        publisher:
+          type: string
+        version:
+          type: string
+        description:
+          type: ["string", "null"]
+        license:
+          type: ["string", "null"]
+        homepage:
+          type: ["string", "null"]
+      required:
+        - packageId
+        - name
+        - publisher
+        - version
+
+    LocalPackage:
+      type: object
+      properties:
+        id:
+          type: integer
+        packageId:
+          type: string
+        name:
+          type: string
+        publisher:
+          type: string
+        version:
+          type: string
+        description:
+          type: ["string", "null"]
+        license:
+          type: ["string", "null"]
+        homepage:
+          type: ["string", "null"]
+        addedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - packageId
+        - name
+        - publisher
+        - version
+        - addedAt
+
+    AddPackageBody:
+      type: object
+      properties:
+        packageId:
+          type: string
+        name:
+          type: string
+        publisher:
+          type: string
+        version:
+          type: string
+        description:
+          type: ["string", "null"]
+        license:
+          type: ["string", "null"]
+        homepage:
+          type: ["string", "null"]
+      required:
+        - packageId
+        - name
+        - publisher
+        - version
+
+    PackageStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        publishers:
+          type: integer
+        recentlyAdded:
+          type: integer
+      required:
+        - total
+        - publishers
+        - recentlyAdded
