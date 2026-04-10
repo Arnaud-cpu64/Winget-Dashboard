@@ -6,9 +6,7 @@
 # -----------------------------------------------------------
 # Stage 1: builder — build Vite en fichiers statiques
 # -----------------------------------------------------------
-FROM node:20-alpine AS builder
-
-RUN apk add --no-cache python3 make g++
+FROM node:20-slim AS builder
 
 RUN npm install -g pnpm@10 --silent
 
