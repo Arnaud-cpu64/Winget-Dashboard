@@ -34,6 +34,7 @@ import {
   Shield,
   RefreshCw,
   ArrowUpCircle,
+  ChevronsUp,
   UploadCloud,
 } from "lucide-react";
 import {
@@ -251,16 +252,25 @@ export default function Dashboard() {
             {/* Update-all button */}
             {updatesAvailable > 0 && (
               <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    size="sm"
-                    className="font-mono bg-amber-500 hover:bg-amber-600 text-black gap-2 shrink-0 border-2 border-amber-300"
-                    disabled={updateVersion.isPending}
-                  >
-                    <ArrowUpCircle size={15} />
-                    Appliquer les mises à jour ({updatesAvailable})
-                  </Button>
-                </AlertDialogTrigger>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          className="font-mono bg-amber-500 hover:bg-amber-600 text-black gap-1.5 shrink-0 border-2 border-amber-300 px-3"
+                          disabled={updateVersion.isPending}
+                        >
+                          <ChevronsUp size={16} />
+                          <span className="tabular-nums font-bold">({updatesAvailable})</span>
+                        </Button>
+                      </AlertDialogTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="font-mono text-xs">
+                      Appliquer les mises à jour ({updatesAvailable})
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 <AlertDialogContent className="bg-card border-border">
                   <AlertDialogHeader>
                     <AlertDialogTitle className="font-mono">Mettre à jour tous les packages ?</AlertDialogTitle>
