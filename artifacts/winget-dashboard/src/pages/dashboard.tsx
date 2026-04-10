@@ -78,6 +78,7 @@ export default function Dashboard() {
   );
 
   const updatesAvailable = packages?.filter((p) => {
+    if (p.version === "latest") return false;
     const latest = updateData?.updates?.[p.packageId];
     return latest != null && latest !== p.version;
   }).length ?? 0;
@@ -114,6 +115,7 @@ export default function Dashboard() {
     if (!updateData) return { latest: null, outdated: false };
     const latest = updateData.updates?.[packageId] ?? null;
     if (latest == null) return { latest: null, outdated: false };
+    if (current === "latest") return { latest, outdated: false };
     return { latest, outdated: latest !== current };
   };
 
@@ -317,9 +319,13 @@ export default function Dashboard() {
                           {pkg.publisher}
                         </TableCell>
                         <TableCell>
-                          <span className="inline-flex items-center rounded border border-border px-2 py-0.5 text-xs font-semibold font-mono bg-secondary/50">
-                            {pkg.version}
-                          </span>
+                          {pkg.version === "latest" && loadingUpdates ? (
+                            <Skeleton className="h-5 w-[60px]" />
+                          ) : (
+                            <span className="inline-flex items-center rounded border border-border px-2 py-0.5 text-xs font-semibold font-mono bg-secondary/50">
+                              {pkg.version === "latest" ? (latest ?? "latest") : pkg.version}
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {loadingUpdates ? (
