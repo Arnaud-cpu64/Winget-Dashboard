@@ -8,8 +8,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { data: health } = useHealthCheck();
 
   const navItems = [
-    { href: "/", label: "Dashboard", icon: Package },
-    { href: "/search", label: "Search & Add", icon: Search },
+    { href: "/", label: "Tableau de bord", icon: Package },
+    { href: "/search", label: "Rechercher & Ajouter", icon: Search },
   ];
 
   return (
@@ -22,7 +22,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex flex-col">
             <span className="font-mono font-bold tracking-tight text-sm leading-none">WG-REPO</span>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Self-Hosted</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Auto-hébergé</span>
           </div>
         </div>
 
@@ -49,9 +49,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
             <Activity size={14} className={health?.status === 'ok' ? 'text-green-400' : 'text-yellow-400'} />
-            <span className="flex-1">System Status</span>
+            <span className="flex-1">État du système</span>
             <span className={health?.status === 'ok' ? 'text-green-400 font-bold' : 'text-yellow-400'}>
-              {health?.status === 'ok' ? 'ONLINE' : 'CONNECTING'}
+              {health?.status === 'ok' ? 'EN LIGNE' : 'CONNEXION'}
             </span>
           </div>
         </div>

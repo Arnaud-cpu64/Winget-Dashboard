@@ -55,6 +55,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { format, formatDistanceToNow } from "date-fns";
+import { fr } from "date-fns/locale";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
@@ -175,10 +176,10 @@ export default function Dashboard() {
       <div>
         <h1 className="text-3xl font-mono font-bold tracking-tight text-foreground flex items-center gap-3">
           <Terminal size={28} className="text-primary" />
-          Dashboard
+          Tableau de bord
         </h1>
         <p className="text-muted-foreground mt-2 font-mono text-sm">
-          Local repository overview & package management
+          Vue d'ensemble du dépôt local et gestion des packages
         </p>
       </div>
 
@@ -186,7 +187,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="bg-card/50 backdrop-blur border-border shadow-none">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">Total Packages</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">Total des packages</CardTitle>
             <Package className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -198,7 +199,7 @@ export default function Dashboard() {
 
         <Card className="bg-card/50 backdrop-blur border-border shadow-none">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">Unique Publishers</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">Éditeurs uniques</CardTitle>
             <Users className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -210,7 +211,7 @@ export default function Dashboard() {
 
         <Card className="bg-card/50 backdrop-blur border-border shadow-none">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">Recently Added (7d)</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">Ajoutés récemment (7j)</CardTitle>
             <Clock className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -222,7 +223,7 @@ export default function Dashboard() {
 
         <Card className="bg-card/50 backdrop-blur border-border shadow-none">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">Updates Available</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">Mises à jour disponibles</CardTitle>
             <ArrowUpCircle className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
@@ -245,7 +246,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-3 flex-wrap">
               <CardTitle className="font-mono text-lg flex items-center gap-2">
                 <Shield size={18} className="text-primary" />
-                Hosted Packages
+                Packages hébergés
               </CardTitle>
 
               {/* Last-checked indicator + force-refresh button */}
@@ -256,11 +257,11 @@ export default function Dashboard() {
                       <TooltipTrigger asChild>
                         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground font-mono cursor-default">
                           <RefreshCw size={11} />
-                          {formatDistanceToNow(new Date(updatesUpdatedAt), { addSuffix: true })}
+                          {formatDistanceToNow(new Date(updatesUpdatedAt), { addSuffix: true, locale: fr })}
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p className="font-mono text-xs">Dernière vérification {formatDistanceToNow(new Date(updatesUpdatedAt), { addSuffix: true })}. Auto-refresh toutes les heures.</p>
+                        <p className="font-mono text-xs">Dernière vérification {formatDistanceToNow(new Date(updatesUpdatedAt), { addSuffix: true, locale: fr })}. Actualisation automatique toutes les heures.</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -339,11 +340,11 @@ export default function Dashboard() {
             <Table>
               <TableHeader className="bg-secondary/50">
                 <TableRow className="border-border hover:bg-transparent">
-                  <TableHead className="font-mono w-[260px]">Name / ID</TableHead>
-                  <TableHead className="font-mono">Publisher</TableHead>
+                  <TableHead className="font-mono w-[260px]">Nom / ID</TableHead>
+                  <TableHead className="font-mono">Éditeur</TableHead>
                   <TableHead className="font-mono w-[110px]">Version</TableHead>
                   <TableHead className="font-mono w-[110px]">Disponible</TableHead>
-                  <TableHead className="font-mono hidden md:table-cell">Added</TableHead>
+                  <TableHead className="font-mono hidden md:table-cell">Ajouté le</TableHead>
                   <TableHead className="font-mono text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -407,12 +408,12 @@ export default function Dashboard() {
                             </TooltipProvider>
                           ) : (
                             <span className="inline-flex items-center rounded border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs font-semibold font-mono text-green-500">
-                              ✓ up to date
+                              ✓ à jour
                             </span>
                           )}
                         </TableCell>
                         <TableCell className="hidden md:table-cell text-sm text-muted-foreground font-mono">
-                          {format(new Date(pkg.addedAt), "MMM d, yyyy")}
+                          {format(new Date(pkg.addedAt), "d MMM yyyy", { locale: fr })}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">

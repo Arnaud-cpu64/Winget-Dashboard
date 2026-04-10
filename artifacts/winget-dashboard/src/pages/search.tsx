@@ -38,8 +38,8 @@ export default function SearchPage() {
     addPackage.mutate({ data: pkg }, {
       onSuccess: () => {
         toast({
-          title: "Package added",
-          description: `Successfully mirrored ${pkg.name} to local repository.`,
+          title: "Package ajouté",
+          description: `${pkg.name} a été ajouté au dépôt local avec succès.`,
         });
         queryClient.invalidateQueries({ queryKey: getListPackagesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetPackageStatsQueryKey() });
@@ -47,8 +47,8 @@ export default function SearchPage() {
       onError: (error: any) => {
         toast({
           variant: "destructive",
-          title: "Failed to add package",
-          description: error.message || "An unexpected error occurred.",
+          title: "Échec de l'ajout",
+          description: error.message || "Une erreur inattendue s'est produite.",
         });
       }
     });
@@ -61,10 +61,10 @@ export default function SearchPage() {
       <div>
         <h1 className="text-3xl font-mono font-bold tracking-tight text-foreground flex items-center gap-3">
           <Database size={28} className="text-primary" />
-          Upstream Search
+          Recherche en amont
         </h1>
         <p className="text-muted-foreground mt-2 font-mono text-sm">
-          Search the official Windows Package Manager community repository and mirror packages to your local instance.
+          Recherchez dans le dépôt officiel Windows Package Manager et ajoutez des packages à votre instance locale.
         </p>
       </div>
 
@@ -73,7 +73,7 @@ export default function SearchPage() {
           <SearchIcon className="h-5 w-5 text-muted-foreground" />
         </div>
         <Input
-          placeholder="Search by ID, name, or publisher... (e.g., Microsoft.PowerToys)"
+          placeholder="Rechercher par ID, nom ou éditeur... (ex: Microsoft.PowerToys)"
           className="pl-10 h-12 font-mono text-base bg-card/50 backdrop-blur border-border focus-visible:ring-primary shadow-sm"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
@@ -88,7 +88,7 @@ export default function SearchPage() {
       <div className="space-y-4">
         {debouncedSearch.length === 0 ? (
           <div className="h-48 flex items-center justify-center border border-dashed border-border rounded-lg bg-card/20">
-            <p className="text-muted-foreground font-mono text-sm">Enter a search query to browse the upstream repository.</p>
+            <p className="text-muted-foreground font-mono text-sm">Saisissez une requête pour parcourir le dépôt officiel.</p>
           </div>
         ) : showLoading ? (
           <div className="space-y-3">
@@ -106,7 +106,7 @@ export default function SearchPage() {
           </div>
         ) : searchResults?.length === 0 ? (
           <div className="h-48 flex items-center justify-center border border-dashed border-border rounded-lg bg-card/20">
-            <p className="text-muted-foreground font-mono text-sm">No packages found for "{debouncedSearch}".</p>
+            <p className="text-muted-foreground font-mono text-sm">Aucun package trouvé pour « {debouncedSearch} ».</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
@@ -155,7 +155,7 @@ export default function SearchPage() {
                             className="flex items-center gap-1.5 hover:text-primary transition-colors"
                           >
                             <Globe size={12} />
-                            Homepage
+                            Site web
                           </a>
                         )}
                       </div>
@@ -173,16 +173,16 @@ export default function SearchPage() {
                         variant={added ? "outline" : "default"}
                       >
                         {added ? (
-                          "Already added"
+                          "Déjà ajouté"
                         ) : isAdding ? (
                           <div className="flex items-center gap-2">
                             <div className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
-                            Mirroring...
+                            Ajout en cours...
                           </div>
                         ) : (
                           <div className="flex items-center gap-2">
                             <Download size={16} />
-                            Add to Repo
+                            Ajouter au dépôt
                           </div>
                         )}
                       </Button>
