@@ -241,51 +241,12 @@ export default function Dashboard() {
       {/* Packages Table */}
       <Card className="bg-card/50 backdrop-blur border-border shadow-none">
         <CardHeader className="flex flex-col gap-3">
-          {/* Top row: title + refresh indicator + update-all button */}
+          {/* Top row: title + update-all button */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <CardTitle className="font-mono text-lg flex items-center gap-2">
-                <Shield size={18} className="text-primary" />
-                Packages hébergés
-              </CardTitle>
-
-              {/* Last-checked indicator + force-refresh button */}
-              <div className="flex items-center gap-2">
-                {updatesUpdatedAt > 0 && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground font-mono cursor-default">
-                          <RefreshCw size={11} />
-                          {formatDistanceToNow(new Date(updatesUpdatedAt), { addSuffix: true, locale: fr })}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="font-mono text-xs">Dernière vérification {formatDistanceToNow(new Date(updatesUpdatedAt), { addSuffix: true, locale: fr })}. Actualisation automatique toutes les heures.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-primary"
-                        onClick={handleForceRefresh}
-                        disabled={refreshUpdates.isPending}
-                      >
-                        <RefreshCw size={14} className={refreshUpdates.isPending ? "animate-spin" : ""} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="font-mono text-xs">Forcer la vérification des versions</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            </div>
+            <CardTitle className="font-mono text-lg flex items-center gap-2">
+              <Shield size={18} className="text-primary" />
+              Packages hébergés
+            </CardTitle>
 
             {/* Update-all button */}
             {updatesAvailable > 0 && (
@@ -321,6 +282,51 @@ export default function Dashboard() {
                 </AlertDialogContent>
               </AlertDialog>
             )}
+          </div>
+
+          {/* Version check status row */}
+          <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
+            <span className="text-muted-foreground/60">Vérification des versions :</span>
+            {loadingUpdates && !updatesUpdatedAt ? (
+              <span className="flex items-center gap-1">
+                <RefreshCw size={11} className="animate-spin" />
+                en cours…
+              </span>
+            ) : updatesUpdatedAt > 0 ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center gap-1 cursor-default hover:text-foreground transition-colors">
+                      <RefreshCw size={11} />
+                      {formatDistanceToNow(new Date(updatesUpdatedAt), { addSuffix: true, locale: fr })}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="font-mono text-xs">Actualisation automatique toutes les heures.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : (
+              <span className="text-muted-foreground/60">jamais effectuée</span>
+            )}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-primary"
+                    onClick={handleForceRefresh}
+                    disabled={refreshUpdates.isPending}
+                  >
+                    <RefreshCw size={13} className={refreshUpdates.isPending ? "animate-spin" : ""} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="font-mono text-xs">Relancer la vérification maintenant</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
 
           {/* Search bar */}
