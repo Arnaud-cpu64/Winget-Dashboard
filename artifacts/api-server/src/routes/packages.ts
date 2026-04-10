@@ -5,6 +5,7 @@ import {
   AddPackageBody,
   GetPackageParams,
   RemovePackageParams,
+  UpdatePackageVersionBody,
   GetPackageResponse,
   GetPackageStatsResponse,
   ListPackagesResponse,
@@ -80,6 +81,34 @@ router.get("/packages/:id", async (req, res): Promise<void> => {
     .select()
     .from(packagesTable)
     .where(eq(packagesTable.id, params.data.id));
+
+  if (!pkg) {
+    res.status(404).json({ error: "Package not found" });
+    return;
+  }
+
+  res.json(GetPackageResponse.parse(pkg));
+});
+
+router.patch("/packages/:id", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const params = GetPackageParams.safeParse({ id: parseInt(raw, 10) });
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const body = UpdatePackageVersionBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
+  const [pkg] = await db
+    .update(packagesTable)
+    .set({ version: body.data.version })
+    .where(eq(packagesTable.id, params.data.id))
+    .returning();
 
   if (!pkg) {
     res.status(404).json({ error: "Package not found" });

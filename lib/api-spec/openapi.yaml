@@ -108,6 +108,31 @@ paths:
                 $ref: "#/components/schemas/LocalPackage"
         "404":
           description: Not found
+    patch:
+      operationId: updatePackageVersion
+      tags: [packages]
+      summary: Update the version of a package in the local repo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePackageVersionBody"
+      responses:
+        "200":
+          description: Package updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalPackage"
+        "404":
+          description: Not found
     delete:
       operationId: removePackage
       tags: [packages]
@@ -146,6 +171,19 @@ paths:
       responses:
         "200":
           description: Latest version information per package
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageUpdateMap"
+
+  /packages/check-updates/refresh:
+    post:
+      operationId: refreshPackageUpdates
+      tags: [packages]
+      summary: Force an immediate re-check of latest versions from the official winget repo
+      responses:
+        "200":
+          description: Refresh started or already in progress
           content:
             application/json:
               schema:
@@ -250,6 +288,14 @@ components:
         - total
         - publishers
         - recentlyAdded
+
+    UpdatePackageVersionBody:
+      type: object
+      properties:
+        version:
+          type: string
+      required:
+        - version
 
     PackageUpdateMap:
       type: object

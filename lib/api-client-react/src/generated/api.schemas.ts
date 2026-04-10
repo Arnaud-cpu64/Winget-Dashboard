@@ -56,6 +56,10 @@ export interface PackageStats {
   recentlyAdded: number;
 }
 
+export interface UpdatePackageVersionBody {
+  version: string;
+}
+
 export type PackageUpdateMapUpdates = { [key: string]: string | null };
 
 export interface PackageUpdateMap {

@@ -13,4 +13,5 @@ export * from "./packageStats";
 export * from "./packageUpdateMap";
 export * from "./packageUpdateMapUpdates";
 export * from "./searchWingetParams";
+export * from "./updatePackageVersionBody";
 export * from "./wingetPackage";

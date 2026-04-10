@@ -85,6 +85,29 @@ export const GetPackageResponse = zod.object({
 });
 
 /**
+ * @summary Update the version of a package in the local repo
+ */
+export const UpdatePackageVersionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdatePackageVersionBody = zod.object({
+  version: zod.string(),
+});
+
+export const UpdatePackageVersionResponse = zod.object({
+  id: zod.number(),
+  packageId: zod.string(),
+  name: zod.string(),
+  publisher: zod.string(),
+  version: zod.string(),
+  description: zod.string().nullish(),
+  license: zod.string().nullish(),
+  homepage: zod.string().nullish(),
+  addedAt: zod.coerce.date(),
+});
+
+/**
  * @summary Remove a package from the local repo
  */
 export const RemovePackageParams = zod.object({
@@ -105,6 +128,14 @@ export const GetPackageStatsResponse = zod.object({
  * @summary Check for package updates from the official winget repo
  */
 export const CheckPackageUpdatesResponse = zod.object({
+  lastCheckedAt: zod.coerce.date(),
+  updates: zod.record(zod.string(), zod.string().nullable()),
+});
+
+/**
+ * @summary Force an immediate re-check of latest versions from the official winget repo
+ */
+export const RefreshPackageUpdatesResponse = zod.object({
   lastCheckedAt: zod.coerce.date(),
   updates: zod.record(zod.string(), zod.string().nullable()),
 });

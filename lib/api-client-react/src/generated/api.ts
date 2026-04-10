@@ -23,6 +23,7 @@ import type {
   PackageStats,
   PackageUpdateMap,
   SearchWingetParams,
+  UpdatePackageVersionBody,
   WingetPackage,
 } from "./api.schemas";
 
@@ -454,6 +455,94 @@ export function useGetPackage<
 }
 
 /**
+ * @summary Update the version of a package in the local repo
+ */
+export const getUpdatePackageVersionUrl = (id: number) => {
+  return `/api/packages/${id}`;
+};
+
+export const updatePackageVersion = async (
+  id: number,
+  updatePackageVersionBody: UpdatePackageVersionBody,
+  options?: RequestInit,
+): Promise<LocalPackage> => {
+  return customFetch<LocalPackage>(getUpdatePackageVersionUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updatePackageVersionBody),
+  });
+};
+
+export const getUpdatePackageVersionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePackageVersion>>,
+    TError,
+    { id: number; data: BodyType<UpdatePackageVersionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updatePackageVersion>>,
+  TError,
+  { id: number; data: BodyType<UpdatePackageVersionBody> },
+  TContext
+> => {
+  const mutationKey = ["updatePackageVersion"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updatePackageVersion>>,
+    { id: number; data: BodyType<UpdatePackageVersionBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updatePackageVersion(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdatePackageVersionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updatePackageVersion>>
+>;
+export type UpdatePackageVersionMutationBody =
+  BodyType<UpdatePackageVersionBody>;
+export type UpdatePackageVersionMutationError = ErrorType<void>;
+
+/**
+ * @summary Update the version of a package in the local repo
+ */
+export const useUpdatePackageVersion = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updatePackageVersion>>,
+    TError,
+    { id: number; data: BodyType<UpdatePackageVersionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updatePackageVersion>>,
+  TError,
+  { id: number; data: BodyType<UpdatePackageVersionBody> },
+  TContext
+> => {
+  return useMutation(getUpdatePackageVersionMutationOptions(options));
+};
+
+/**
  * @summary Remove a package from the local repo
  */
 export const getRemovePackageUrl = (id: number) => {
@@ -687,3 +776,84 @@ export function useCheckPackageUpdates<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Force an immediate re-check of latest versions from the official winget repo
+ */
+export const getRefreshPackageUpdatesUrl = () => {
+  return `/api/packages/check-updates/refresh`;
+};
+
+export const refreshPackageUpdates = async (
+  options?: RequestInit,
+): Promise<PackageUpdateMap> => {
+  return customFetch<PackageUpdateMap>(getRefreshPackageUpdatesUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRefreshPackageUpdatesMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshPackageUpdates>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshPackageUpdates>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["refreshPackageUpdates"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshPackageUpdates>>,
+    void
+  > = () => {
+    return refreshPackageUpdates(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshPackageUpdatesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshPackageUpdates>>
+>;
+
+export type RefreshPackageUpdatesMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Force an immediate re-check of latest versions from the official winget repo
+ */
+export const useRefreshPackageUpdates = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshPackageUpdates>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshPackageUpdates>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshPackageUpdatesMutationOptions(options));
+};

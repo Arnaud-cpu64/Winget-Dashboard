@@ -104,18 +104,21 @@ export function startUpdateScheduler(): void {
   setInterval(() => refreshAll().catch(() => {}), CACHE_TTL_MS);
 }
 
-router.get("/packages/check-updates", async (_req, res): Promise<void> => {
+function buildResponse() {
   const updates: Record<string, string | null> = {};
   for (const [packageId, entry] of versionCache.entries()) {
     updates[packageId] = entry.version;
   }
+  return CheckPackageUpdatesResponse.parse({ lastCheckedAt, updates });
+}
 
-  res.json(
-    CheckPackageUpdatesResponse.parse({
-      lastCheckedAt,
-      updates,
-    }),
-  );
+router.get("/packages/check-updates", async (_req, res): Promise<void> => {
+  res.json(buildResponse());
+});
+
+router.post("/packages/check-updates/refresh", async (_req, res): Promise<void> => {
+  refreshAll().catch(() => {});
+  res.json(buildResponse());
 });
 
 export default router;
