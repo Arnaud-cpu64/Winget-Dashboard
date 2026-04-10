@@ -21,6 +21,7 @@ import type {
   HealthStatus,
   LocalPackage,
   PackageStats,
+  PackageUpdateMap,
   SearchWingetParams,
   WingetPackage,
 } from "./api.schemas";
@@ -603,6 +604,82 @@ export function useGetPackageStats<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetPackageStatsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * Returns the latest available version for each locally hosted package. Results are cached for 1 hour on the server.
+ * @summary Check for package updates from the official winget repo
+ */
+export const getCheckPackageUpdatesUrl = () => {
+  return `/api/packages/check-updates`;
+};
+
+export const checkPackageUpdates = async (
+  options?: RequestInit,
+): Promise<PackageUpdateMap> => {
+  return customFetch<PackageUpdateMap>(getCheckPackageUpdatesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getCheckPackageUpdatesQueryKey = () => {
+  return [`/api/packages/check-updates`] as const;
+};
+
+export const getCheckPackageUpdatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof checkPackageUpdates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof checkPackageUpdates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getCheckPackageUpdatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof checkPackageUpdates>>
+  > = ({ signal }) => checkPackageUpdates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof checkPackageUpdates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type CheckPackageUpdatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof checkPackageUpdates>>
+>;
+export type CheckPackageUpdatesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Check for package updates from the official winget repo
+ */
+
+export function useCheckPackageUpdates<
+  TData = Awaited<ReturnType<typeof checkPackageUpdates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof checkPackageUpdates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getCheckPackageUpdatesQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

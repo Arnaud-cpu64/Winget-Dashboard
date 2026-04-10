@@ -56,6 +56,13 @@ export interface PackageStats {
   recentlyAdded: number;
 }
 
+export type PackageUpdateMapUpdates = { [key: string]: string | null };
+
+export interface PackageUpdateMap {
+  lastCheckedAt: string;
+  updates: PackageUpdateMapUpdates;
+}
+
 export type SearchWingetParams = {
   q: string;
   limit?: number;

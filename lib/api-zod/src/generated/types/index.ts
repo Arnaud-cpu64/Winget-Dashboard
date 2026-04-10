@@ -10,5 +10,7 @@ export * from "./addPackageBody";
 export * from "./healthStatus";
 export * from "./localPackage";
 export * from "./packageStats";
+export * from "./packageUpdateMap";
+export * from "./packageUpdateMapUpdates";
 export * from "./searchWingetParams";
 export * from "./wingetPackage";

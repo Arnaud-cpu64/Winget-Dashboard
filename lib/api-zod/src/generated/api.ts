@@ -99,3 +99,12 @@ export const GetPackageStatsResponse = zod.object({
   publishers: zod.number(),
   recentlyAdded: zod.number(),
 });
+
+/**
+ * Returns the latest available version for each locally hosted package. Results are cached for 1 hour on the server.
+ * @summary Check for package updates from the official winget repo
+ */
+export const CheckPackageUpdatesResponse = zod.object({
+  lastCheckedAt: zod.coerce.date(),
+  updates: zod.record(zod.string(), zod.string().nullable()),
+});
