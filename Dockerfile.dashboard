@@ -12,9 +12,11 @@ RUN npm install -g pnpm@10 --silent
 
 WORKDIR /workspace
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY tsconfig.base.json ./
 COPY lib/ ./lib/
 COPY artifacts/winget-dashboard/ ./artifacts/winget-dashboard/
+
 
 RUN pnpm install --frozen-lockfile
 
