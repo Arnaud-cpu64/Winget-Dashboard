@@ -1,0 +1,41 @@
+# ============================================================
+# Dockerfile.api — WG-Repo API Server
+# Build context: monorepo root
+# ============================================================
+
+# -----------------------------------------------------------
+# Stage 1: builder — installe les dépendances et compile
+# -----------------------------------------------------------
+FROM node:20-alpine AS builder
+
+RUN npm install -g pnpm@10 --silent
+
+WORKDIR /workspace
+
+# Fichiers de configuration workspace (layer cacheable)
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+
+# Bibliothèques partagées et artefact API
+COPY lib/ ./lib/
+COPY artifacts/api-server/ ./artifacts/api-server/
+
+# Installation des dépendances (frozen = reproductible)
+RUN pnpm install --frozen-lockfile
+
+# Build — esbuild bundle tout en un seul fichier ESM
+RUN pnpm --filter @workspace/api-server run build
+
+# -----------------------------------------------------------
+# Stage 2: runner — image minimale (aucun node_modules)
+# esbuild a bundlé toutes les dépendances JS dans dist/
+# -----------------------------------------------------------
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+COPY --from=builder /workspace/artifacts/api-server/dist ./dist
+
+ENV NODE_ENV=production
+EXPOSE 3000
+
+CMD ["node", "--enable-source-maps", "./dist/index.mjs"]

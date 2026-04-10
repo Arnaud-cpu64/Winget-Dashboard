@@ -1,0 +1,69 @@
+# ============================================================
+# docker-compose.yml — Configuration de base WG-Repo
+#
+# Usage:
+#   PROD : docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
+#   REC  : docker compose -f docker-compose.yml -f docker-compose.rec.yml  --env-file .env.rec  up -d
+#
+# Doit être exécuté depuis le dossier deploy/
+# ============================================================
+
+name: wg-repo
+
+services:
+
+  # ----------------------------------------------------------
+  # PostgreSQL — base de données
+  # ----------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-wgrepo}
+      POSTGRES_USER:     ${POSTGRES_USER:-wgrepo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?La variable POSTGRES_PASSWORD est obligatoire}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wgrepo} -d ${POSTGRES_DB:-wgrepo}"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+
+  # ----------------------------------------------------------
+  # Migrator — applique le schéma Drizzle (run-once)
+  # ----------------------------------------------------------
+  migrate:
+    image: ghcr.io/${GITHUB_ORG:?}/wg-repo-migrator:${TAG:-latest}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wgrepo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wgrepo}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ----------------------------------------------------------
+  # API — serveur Express/Node.js
+  # ----------------------------------------------------------
+  api:
+    image: ghcr.io/${GITHUB_ORG:?}/wg-repo-api:${TAG:-latest}
+    environment:
+      PORT:         3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wgrepo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wgrepo}
+      NODE_ENV:     production
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # ----------------------------------------------------------
+  # Dashboard — nginx + fichiers statiques React
+  # ----------------------------------------------------------
+  dashboard:
+    image: ghcr.io/${GITHUB_ORG:?}/wg-repo-dashboard:${TAG:-latest}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      - api
+
+volumes:
+  db_data:

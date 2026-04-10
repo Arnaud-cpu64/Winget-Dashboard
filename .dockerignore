@@ -1,0 +1,28 @@
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+
+# Logs
+*.log
+pnpm-debug.log*
+
+# Dev/IDE
+.env
+.env.*
+!.env.example
+.vscode
+.idea
+
+# Replit
+.replit
+replit.nix
+.local
+attached_assets
+
+# Mockup sandbox (pas besoin en prod)
+artifacts/mockup-sandbox
+
+# Git
+.git
+.gitignore

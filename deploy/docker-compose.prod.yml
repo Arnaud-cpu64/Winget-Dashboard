@@ -1,0 +1,26 @@
+# ============================================================
+# docker-compose.prod.yml — Surcharges PRODUCTION
+#
+# Serveur RHEL9 PROD — restart automatique, volumes nommés prod
+# ============================================================
+
+name: wg-repo-prod
+
+services:
+
+  db:
+    restart: always
+    volumes:
+      - db_data_prod:/var/lib/postgresql/data
+
+  migrate:
+    restart: "no"
+
+  api:
+    restart: always
+
+  dashboard:
+    restart: always
+
+volumes:
+  db_data_prod:

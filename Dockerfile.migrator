@@ -1,0 +1,21 @@
+# ============================================================
+# Dockerfile.migrator — Applique le schéma Drizzle sur la DB
+# À exécuter une fois avant de démarrer l'API
+# ============================================================
+
+FROM node:20-alpine
+
+RUN npm install -g pnpm@10 --silent
+
+WORKDIR /workspace
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY lib/db/ ./lib/db/
+
+RUN pnpm install --frozen-lockfile --filter @workspace/db
+
+WORKDIR /workspace/lib/db
+
+ENV NODE_ENV=production
+
+ENTRYPOINT ["pnpm", "run", "push"]
