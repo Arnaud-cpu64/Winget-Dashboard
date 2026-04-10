@@ -254,11 +254,11 @@ export default function Dashboard() {
                 <AlertDialogTrigger asChild>
                   <Button
                     size="sm"
-                    className="font-mono bg-amber-500 hover:bg-amber-600 text-black gap-2 shrink-0"
+                    className="font-mono bg-amber-500 hover:bg-amber-600 text-black gap-2 shrink-0 border-2 border-amber-300"
                     disabled={updateVersion.isPending}
                   >
-                    <UploadCloud size={15} />
-                    Mettre à jour tout ({updatesAvailable})
+                    <ArrowUpCircle size={15} />
+                    Appliquer les mises à jour ({updatesAvailable})
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent className="bg-card border-border">
