@@ -256,7 +256,7 @@ export default function Dashboard() {
                   <TableHead className="font-mono w-[280px]">Name / ID</TableHead>
                   <TableHead className="font-mono">Publisher</TableHead>
                   <TableHead className="font-mono w-[110px]">Version</TableHead>
-                  <TableHead className="font-mono w-[110px]">Latest</TableHead>
+                  <TableHead className="font-mono w-[110px]">Disponible</TableHead>
                   <TableHead className="font-mono hidden md:table-cell">Added</TableHead>
                   <TableHead className="font-mono text-right">Actions</TableHead>
                 </TableRow>
