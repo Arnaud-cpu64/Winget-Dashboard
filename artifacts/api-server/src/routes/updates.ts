@@ -35,14 +35,15 @@ async function fetchGitHubContents(path: string): Promise<GitHubContent[]> {
   return Array.isArray(data) ? (data as GitHubContent[]) : [];
 }
 
-function parsePackageId(packageId: string): { letter: string; publisher: string; packageName: string } | null {
-  const dotIndex = packageId.indexOf(".");
-  if (dotIndex === -1) return null;
-  const publisher = packageId.slice(0, dotIndex);
-  const packageName = packageId.slice(dotIndex + 1);
+function parsePackageId(packageId: string): { letter: string; manifestPath: string } | null {
+  const parts = packageId.split(".");
+  if (parts.length < 2) return null;
+  const publisher = parts[0];
   const firstChar = publisher[0]?.toLowerCase();
   if (!firstChar) return null;
-  return { letter: firstChar, publisher, packageName };
+  // Each dot-separated segment after the publisher becomes its own directory level
+  const manifestPath = parts.join("/");
+  return { letter: firstChar, manifestPath };
 }
 
 function compareVersions(a: string, b: string): number {
@@ -61,10 +62,13 @@ async function fetchLatestVersion(packageId: string): Promise<string | null> {
   const parsed = parsePackageId(packageId);
   if (!parsed) return null;
 
-  const { letter, publisher, packageName } = parsed;
-  const path = `manifests/${letter}/${publisher}/${packageName}`;
+  const { letter, manifestPath } = parsed;
+  const path = `manifests/${letter}/${manifestPath}`;
   const contents = await fetchGitHubContents(path);
-  const versions = contents.filter((c) => c.type === "dir").map((c) => c.name);
+  // Only keep directories that look like version numbers (start with a digit)
+  const versions = contents
+    .filter((c) => c.type === "dir" && /^\d/.test(c.name))
+    .map((c) => c.name);
 
   if (versions.length === 0) return null;
 
