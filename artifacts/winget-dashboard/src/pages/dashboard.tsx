@@ -34,7 +34,6 @@ import {
   Shield,
   RefreshCw,
   ArrowUpCircle,
-  ChevronsUp,
   UploadCloud,
 } from "lucide-react";
 import {
@@ -256,14 +255,13 @@ export default function Dashboard() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <AlertDialogTrigger asChild>
-                        <Button
-                          size="sm"
-                          className="font-mono bg-amber-500 hover:bg-amber-600 text-black gap-1.5 shrink-0 border-2 border-amber-300 px-3"
+                        <button
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 hover:border-amber-500/70 text-amber-400 hover:text-amber-300 transition-all text-xs font-mono font-semibold disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                           disabled={updateVersion.isPending}
                         >
-                          <ChevronsUp size={16} />
-                          <span className="tabular-nums font-bold">({updatesAvailable})</span>
-                        </Button>
+                          <UploadCloud size={13} />
+                          {updatesAvailable} màj
+                        </button>
                       </AlertDialogTrigger>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="font-mono text-xs">
