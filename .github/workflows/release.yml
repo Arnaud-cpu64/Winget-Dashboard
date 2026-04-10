@@ -21,6 +21,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-and-push:
@@ -58,7 +59,7 @@ jobs:
       # Image API
       # ----------------------------------------------------------
       - name: Build & Push — API
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.api
@@ -74,7 +75,7 @@ jobs:
       # Image Dashboard
       # ----------------------------------------------------------
       - name: Build & Push — Dashboard
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.dashboard
@@ -90,7 +91,7 @@ jobs:
       # Image Migrator (schéma Drizzle)
       # ----------------------------------------------------------
       - name: Build & Push — Migrator
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.migrator
