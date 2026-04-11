@@ -17,4 +17,8 @@ export interface AddPackageBody {
   license?: string | null;
   /** @nullable */
   homepage?: string | null;
+  /** @nullable */
+  installerUrl?: string | null;
+  /** @nullable */
+  installerSha256?: string | null;
 }

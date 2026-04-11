@@ -48,6 +48,8 @@ export const ListPackagesResponseItem = zod.object({
   description: zod.string().nullish(),
   license: zod.string().nullish(),
   homepage: zod.string().nullish(),
+  installerUrl: zod.string().nullish(),
+  installerSha256: zod.string().nullish(),
   addedAt: zod.coerce.date(),
 });
 export const ListPackagesResponse = zod.array(ListPackagesResponseItem);
@@ -63,6 +65,8 @@ export const AddPackageBody = zod.object({
   description: zod.string().nullish(),
   license: zod.string().nullish(),
   homepage: zod.string().nullish(),
+  installerUrl: zod.string().nullish(),
+  installerSha256: zod.string().nullish(),
 });
 
 /**
@@ -81,6 +85,8 @@ export const GetPackageResponse = zod.object({
   description: zod.string().nullish(),
   license: zod.string().nullish(),
   homepage: zod.string().nullish(),
+  installerUrl: zod.string().nullish(),
+  installerSha256: zod.string().nullish(),
   addedAt: zod.coerce.date(),
 });
 
@@ -104,6 +110,8 @@ export const UpdatePackageVersionResponse = zod.object({
   description: zod.string().nullish(),
   license: zod.string().nullish(),
   homepage: zod.string().nullish(),
+  installerUrl: zod.string().nullish(),
+  installerSha256: zod.string().nullish(),
   addedAt: zod.coerce.date(),
 });
 

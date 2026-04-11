@@ -18,5 +18,9 @@ export interface LocalPackage {
   license?: string | null;
   /** @nullable */
   homepage?: string | null;
+  /** @nullable */
+  installerUrl?: string | null;
+  /** @nullable */
+  installerSha256?: string | null;
   addedAt: Date;
 }

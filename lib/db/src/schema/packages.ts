@@ -11,6 +11,8 @@ export const packagesTable = pgTable("packages", {
   description: text("description"),
   license: text("license"),
   homepage: text("homepage"),
+  installerUrl: text("installer_url"),
+  installerSha256: text("installer_sha256"),
   addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
