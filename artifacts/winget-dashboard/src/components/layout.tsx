@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { Package, Search, Settings, Server, TerminalSquare, Activity } from "lucide-react";
+import { Package, Search, Settings, Server, TerminalSquare, Activity, Cpu } from "lucide-react";
 import { useHealthCheck } from "@workspace/api-client-react";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -10,6 +10,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { href: "/", label: "Tableau de bord", icon: Package },
     { href: "/search", label: "Rechercher & Ajouter", icon: Search },
+    { href: "/sccm", label: "Intégration SCCM", icon: Cpu },
   ];
 
   return (
