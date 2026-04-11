@@ -20,6 +20,43 @@ interface CacheEntry<T> {
 
 const publishersCache = new Map<string, CacheEntry<string[]>>();
 const packagesCache = new Map<string, CacheEntry<string[]>>();
+const versionCache = new Map<string, CacheEntry<string>>();
+
+function compareVersions(a: string, b: string): number {
+  const clean = (v: string) => v.split(/[-+]/)[0]!;
+  const aParts = clean(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const bParts = clean(b).split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(aParts.length, bParts.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function getPackageVersion(packageId: string): Promise<string> {
+  const cached = versionCache.get(packageId);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
+
+  const parts = packageId.split(".");
+  if (parts.length < 2) return "latest";
+  const firstChar = parts[0]?.[0]?.toLowerCase();
+  if (!firstChar) return "latest";
+
+  const path = `manifests/${firstChar}/${parts.join("/")}`;
+  const contents = await fetchGitHubContents(path);
+
+  const versions = contents
+    .filter((c) => c.type === "dir" && /^\d/.test(c.name))
+    .map((c) => c.name);
+
+  if (versions.length === 0) return "latest";
+
+  versions.sort((a, b) => compareVersions(b, a));
+  const version = versions[0] ?? "latest";
+  versionCache.set(packageId, { data: version, ts: Date.now() });
+  return version;
+}
 
 // Popular packages for instant results without API calls.
 // Format: [packageId, friendlyName, ...searchTerms]
@@ -262,7 +299,22 @@ router.get("/winget/search", async (req, res): Promise<void> => {
 
     results.sort((a, b) => b._score - a._score);
     const topResults = results.slice(0, limit).map(({ _score: _s, ...rest }) => rest);
-    res.json(SearchWingetResponse.parse(topResults));
+
+    // Récupère les vraies versions en parallèle (max 4s, sinon "latest" en fallback)
+    const TIMEOUT_MS = 4000;
+    const versionsOrTimeout = await Promise.race([
+      Promise.all(topResults.map((pkg) =>
+        getPackageVersion(pkg.packageId).catch(() => pkg.version)
+      )),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), TIMEOUT_MS)),
+    ]);
+
+    const finalResults = topResults.map((pkg, i) => ({
+      ...pkg,
+      version: versionsOrTimeout ? (versionsOrTimeout[i] ?? pkg.version) : pkg.version,
+    }));
+
+    res.json(SearchWingetResponse.parse(finalResults));
   } catch (err) {
     req.log.error({ err }, "Error searching winget packages");
     res.status(502).json({ error: "Failed to search winget packages" });
