@@ -45,6 +45,42 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 
 ---
 
+## CI/CD avec GitLab interne
+
+Le fichier `.gitlab-ci.yml` à la racine configure automatiquement la construction et la publication des images Docker vers le registre GitLab interne.
+
+### Prérequis GitLab
+
+1. **Activer le registre de conteneurs** sur le projet :  
+   GitLab → Settings → General → Visibility → Container registry → Enabled
+
+2. **Pousser le code** vers votre GitLab interne :
+   ```bash
+   git remote add gitlab https://gitlab.interne/groupe/wg-selfRepo.git
+   git push gitlab main
+   ```
+
+3. **Créer un tag** pour déclencher le build :
+   ```bash
+   git tag v1.0.0
+   git push gitlab v1.0.0
+   ```
+
+GitLab CI lance 3 jobs en parallèle (`build-api`, `build-dashboard`, `build-migrator`) et pousse les images dans :
+```
+registry.gitlab.interne/groupe/wg-selfRepo/wg-repo-api:v1.0.0
+registry.gitlab.interne/groupe/wg-selfRepo/wg-repo-dashboard:v1.0.0
+registry.gitlab.interne/groupe/wg-selfRepo/wg-repo-migrator:v1.0.0
+```
+
+### Connexion au registre depuis les serveurs RHEL9
+
+```bash
+docker login registry.gitlab.interne -u <utilisateur> -p <token-accès-personnel>
+```
+
+---
+
 ## Déploiement rapide (Docker)
 
 ### Prérequis
@@ -70,7 +106,8 @@ cp .env.example .env.prod
 Remplir `.env.prod` :
 
 ```env
-GITHUB_ORG=Arnaud-cpu64
+# Registre GitLab interne
+REGISTRY=registry.gitlab.interne/groupe/wg-selfRepo
 TAG=v1.0.0
 POSTGRES_PASSWORD=mot-de-passe-fort
 HTTP_PORT=80
@@ -202,17 +239,28 @@ GET /api/packages/sccm-scripts?ids=1,2,3&repo=MonDépôt
 
 ## Publication d'une nouvelle version
 
+### Via GitLab CI (recommandé — registre interne)
+
 ```bash
 git tag v1.2.0
 git push origin v1.2.0
 ```
 
-GitHub Actions construit et pousse automatiquement les 3 images sur GHCR.  
+GitLab CI construit automatiquement les 3 images et les pousse dans le registre interne.  
+Suivre l'avancement dans **GitLab → CI/CD → Pipelines**.
+
 Sur le serveur, mettre à jour `TAG=v1.2.0` dans `.env.prod` puis :
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
+```
+
+### Via GitHub Actions (si accès internet disponible)
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0   # déclenche le workflow .github/workflows/release.yml
 ```
 
 ---
@@ -238,8 +286,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.
 ├── Dockerfile.api           # Image API (esbuild bundle, ~60 Mo)
 ├── Dockerfile.dashboard     # Image Dashboard (nginx + statiques, ~30 Mo)
 ├── Dockerfile.migrator      # Image migration Drizzle (run-once)
+├── .gitlab-ci.yml           # Pipeline GitLab CI (build → registre interne)
 └── .github/workflows/
-    └── release.yml          # Build & Push GHCR sur git tag
+    └── release.yml          # Build & Push GHCR (si accès internet)
 ```
 
 ---
