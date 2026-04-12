@@ -1,12 +1,13 @@
 # ============================================================
 # docker-compose.yml — Configuration de base WG-Repo
 #
-# Usage:
-#   PROD : docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
-#   REC  : docker compose -f docker-compose.yml -f docker-compose.rec.yml  --env-file .env.rec  up -d
+# Les images sont construites directement sur le serveur
+# depuis le code source (pas de registre Docker requis).
 #
-# Doit être exécuté depuis le dossier deploy/
-# REGISTRY  : chemin de base des images (ex: registry.gitlab.interne/groupe/wg-selfRepo)
+# Usage (depuis le dossier deploy/) :
+#   PROD : docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#   REC  : docker compose -f docker-compose.yml -f docker-compose.rec.yml  --env-file .env.rec  up -d --build
+#
 # CERTS_DIR : dossier sur l'hôte contenant cert.pem et key.pem
 # ============================================================
 
@@ -35,7 +36,10 @@ services:
   # Migrator — applique le schéma Drizzle (run-once)
   # ----------------------------------------------------------
   migrate:
-    image: ${REGISTRY:?Définir REGISTRY dans .env}/wg-repo-migrator:${TAG:-latest}
+    image: wg-repo-migrator:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile.migrator
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-wgrepo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wgrepo}
     depends_on:
@@ -46,7 +50,10 @@ services:
   # API — serveur Express/Node.js
   # ----------------------------------------------------------
   api:
-    image: ${REGISTRY:?Définir REGISTRY dans .env}/wg-repo-api:${TAG:-latest}
+    image: wg-repo-api:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
     environment:
       PORT:         3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-wgrepo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wgrepo}
@@ -61,7 +68,10 @@ services:
   # Dashboard — nginx + TLS + fichiers statiques React
   # ----------------------------------------------------------
   dashboard:
-    image: ${REGISTRY:?Définir REGISTRY dans .env}/wg-repo-dashboard:${TAG:-latest}
+    image: wg-repo-dashboard:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile.dashboard
     ports:
       - "80:80"
       - "443:443"

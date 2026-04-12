@@ -1,85 +1,40 @@
 # ============================================================
-# .gitlab-ci.yml — Build & Push des images Docker
-# vers le registre GitLab interne
-#
-# Déclencheurs :
-#   - Push d'un tag vX.Y.Z  → images taguées vX.Y.Z + latest
-#   - Pipeline manuel        → tag "latest"
+# .gitlab-ci.yml — Validation du code source
 #
 # Dépôt GitLab : git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git
 #
-# Variables GitLab injectées automatiquement :
-#   CI_REGISTRY          — hostname du registre (ex: registry.devops.etat-ge.ch)
-#   CI_REGISTRY_IMAGE    — chemin complet (ex: registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget)
-#   CI_REGISTRY_USER     — utilisateur pour docker login
-#   CI_REGISTRY_PASSWORD — token pour docker login
+# Le déploiement se fait directement sur les serveurs RHEL9
+# en clonant ce dépôt et en construisant les images Docker
+# localement (pas de registre Docker requis).
+#
+# Déclencheurs : tout push sur main ou merge request
 # ============================================================
 
 stages:
-  - build
+  - validate
 
 variables:
-  DOCKER_DRIVER:      overlay2
-  DOCKER_TLS_CERTDIR: "/certs"
-  # Tag par défaut si déclenché manuellement sans tag git
-  IMAGE_TAG: ${CI_COMMIT_TAG:-latest}
+  NODE_VERSION: "20"
 
 # ------------------------------------------------------------------
-# Template commun à tous les jobs de build
+# Validation TypeScript — vérifie que le code compile sans erreurs
 # ------------------------------------------------------------------
-.build_template: &build_template
-  stage: build
-  image: docker:26
-  services:
-    - docker:26-dind
+validate:
+  stage: validate
+  image: node:20-slim
   before_script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - npm install -g pnpm@10 --silent
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm --filter @workspace/api-server    exec tsc --noEmit
+    - pnpm --filter @workspace/winget-dashboard exec tsc --noEmit
   rules:
-    - if: $CI_COMMIT_TAG          # push d'un tag vX.Y.Z
-    - if: $CI_PIPELINE_SOURCE == "web"   # déclenchement manuel
-
-# ------------------------------------------------------------------
-# Image API
-# ------------------------------------------------------------------
-build-api:
-  <<: *build_template
-  script:
-    - |
-      docker build \
-        -f Dockerfile.api \
-        -t "$CI_REGISTRY_IMAGE/wg-repo-api:$IMAGE_TAG" \
-        -t "$CI_REGISTRY_IMAGE/wg-repo-api:latest" \
-        .
-    - docker push "$CI_REGISTRY_IMAGE/wg-repo-api:$IMAGE_TAG"
-    - docker push "$CI_REGISTRY_IMAGE/wg-repo-api:latest"
-
-# ------------------------------------------------------------------
-# Image Dashboard
-# ------------------------------------------------------------------
-build-dashboard:
-  <<: *build_template
-  script:
-    - |
-      docker build \
-        -f Dockerfile.dashboard \
-        --build-arg BASE_PATH=/ \
-        -t "$CI_REGISTRY_IMAGE/wg-repo-dashboard:$IMAGE_TAG" \
-        -t "$CI_REGISTRY_IMAGE/wg-repo-dashboard:latest" \
-        .
-    - docker push "$CI_REGISTRY_IMAGE/wg-repo-dashboard:$IMAGE_TAG"
-    - docker push "$CI_REGISTRY_IMAGE/wg-repo-dashboard:latest"
-
-# ------------------------------------------------------------------
-# Image Migrator
-# ------------------------------------------------------------------
-build-migrator:
-  <<: *build_template
-  script:
-    - |
-      docker build \
-        -f Dockerfile.migrator \
-        -t "$CI_REGISTRY_IMAGE/wg-repo-migrator:$IMAGE_TAG" \
-        -t "$CI_REGISTRY_IMAGE/wg-repo-migrator:latest" \
-        .
-    - docker push "$CI_REGISTRY_IMAGE/wg-repo-migrator:$IMAGE_TAG"
-    - docker push "$CI_REGISTRY_IMAGE/wg-repo-migrator:latest"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - node_modules/
+      - .pnpm-store/

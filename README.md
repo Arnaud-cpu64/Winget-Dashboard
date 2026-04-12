@@ -102,42 +102,40 @@ git remote -v
 # 1. Récupérer les dernières modifications depuis GitHub
 git pull origin main
 
-# 2. Pousser vers GitLab pour déclencher le CI
+# 2. Pousser vers GitLab (déclenche la validation CI)
 git push gitlab main
-
-# 3. Créer un tag versionné → déclenche le build des images Docker
-git tag v1.0.0
-git push gitlab v1.0.0
 ```
 
-GitLab CI lance 3 jobs en parallèle (`build-api`, `build-dashboard`, `build-migrator`) et pousse les images dans :
-```
-registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget/wg-repo-api:v1.0.0
-registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget/wg-repo-dashboard:v1.0.0
-registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget/wg-repo-migrator:v1.0.0
-```
-
-> **Hostname du registre :** vérifiez l'URL exacte dans GitLab → **Settings → Packages and registries → Container registry**. GitLab y affiche aussi la commande `docker login` prête à l'emploi.
-
-### Activer le registre de conteneurs GitLab
-
-GitLab → Settings → General → Visibility → Container registry → **Enabled**
+GitLab CI exécute automatiquement une **vérification TypeScript** pour valider le code.
 
 ### Déploiement sur les serveurs RHEL9
 
-Une fois le build CI terminé, depuis chaque serveur :
+Les images Docker sont construites **directement sur le serveur** depuis le code source — aucun registre Docker n'est requis.
 
+**Premier déploiement :**
 ```bash
-# Se connecter au registre GitLab (une seule fois, ou après expiration du token)
-docker login registry.devops.etat-ge.ch -u <utilisateur> -p <token-accès-personnel>
-
-# Mettre à jour les images et redémarrer les conteneurs
+# Cloner le dépôt GitLab sur le serveur
+git clone git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git /opt/wg-repo
 cd /opt/wg-repo/deploy
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
+
+# Créer la configuration
+cp .env.prod.example .env.prod
+# → Éditer .env.prod : renseigner POSTGRES_PASSWORD et CERTS_DIR
+
+# Construire les images et démarrer
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
-> Créer un **Personal Access Token** GitLab sous **User Settings → Access Tokens** avec le scope `read_registry`.
+**Mise à jour après un push GitLab :**
+```bash
+cd /opt/wg-repo
+git pull
+
+cd deploy
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+> Le flag `--build` reconstruit uniquement les images dont le code source a changé. PostgreSQL et les données ne sont pas affectés.
 
 ---
 
@@ -146,7 +144,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.
 ### Prérequis
 
 - Docker CE + plugin Compose (voir [Installation Docker sur RHEL9](#installation-docker-rhel9))
-- Accès au registre Docker GitLab interne
+- Accès SSH au dépôt GitLab interne
 - Certificats TLS émis par l'autorité de certification interne
 
 ### 1. Préparer les certificats TLS
@@ -167,25 +165,23 @@ sudo chmod 600 /opt/wg-repo/certs/key.pem
 
 > **Important :** `cert.pem` doit contenir le certificat du serveur **suivi** des certificats intermédiaires de l'AC interne, concaténés dans l'ordre (du plus spécifique au plus général). Sans la chaîne complète, Windows refusera de faire confiance à la source Winget.
 
-### 2. Connexion au registre GitLab
+### 2. Cloner le dépôt GitLab sur le serveur
 
 ```bash
-docker login registry.devops.etat-ge.ch -u <utilisateur> -p <token-accès-personnel>
+git clone git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git /opt/wg-repo
 ```
 
 ### 3. Configuration
 
 ```bash
-cd deploy/
+cd /opt/wg-repo/deploy
 cp .env.prod.example .env.prod    # pour la PROD
 cp .env.rec.example  .env.rec     # pour la REC
 ```
 
-Remplir `.env.prod` (les valeurs à adapter) :
+Remplir `.env.prod` :
 
 ```env
-REGISTRY=registry.gitlab.interne/groupe/wg-selfRepo
-TAG=v1.0.0
 POSTGRES_PASSWORD=mot-de-passe-fort
 CERTS_DIR=/opt/wg-repo/certs
 ```
@@ -196,15 +192,16 @@ CERTS_DIR=/opt/wg-repo/certs
 
 **Environnement PROD** (ports 80 → redirige HTTPS et 443 → TLS) :
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
-**Environnement REC** (redémarrage souple, port 8080) :
+**Environnement REC :**
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.rec.yml --env-file .env.rec up -d
+docker compose -f docker-compose.yml -f docker-compose.rec.yml --env-file .env.rec up -d --build
 ```
 
-La migration de base de données s'applique automatiquement au premier démarrage.
+La migration de base de données s'applique automatiquement au premier démarrage.  
+Le flag `--build` construit les images Docker localement depuis le code source.
 
 ### 5. Vérification
 
