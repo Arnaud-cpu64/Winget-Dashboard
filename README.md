@@ -45,26 +45,70 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 
 ---
 
-## CI/CD avec GitLab interne
+## CI/CD — Workflow complet
 
-Le fichier `.gitlab-ci.yml` à la racine configure automatiquement la construction et la publication des images Docker vers le registre GitLab interne.
+### Schéma des flux
 
-### Prérequis GitLab
+```
+  [Replit / développeur externe]
+           │
+           │  git push (GitHub public)
+           ▼
+  ┌─────────────────────┐
+  │  GitHub              │  ← sauvegarde / collaboration externe
+  │  Arnaud-cpu64/       │
+  │  WG-SelfRepo         │
+  └─────────────────────┘
+           │
+           │  git pull  (depuis le poste interne)
+           │  git push  (vers GitLab interne)
+           ▼
+  ┌─────────────────────┐          ┌──────────────────────────────┐
+  │  GitLab interne      │ CI/CD ──►│  Registre Docker GitLab      │
+  │  git.devops.         │          │  registry.devops.etat-ge.ch  │
+  │  etat-ge.ch          │          └──────────────────────────────┘
+  └─────────────────────┘                        │
+                                                 │  docker compose pull
+                                                 ▼
+                                    ┌────────────────────────┐
+                                    │  Serveurs RHEL9         │
+                                    │  PROD / REC             │
+                                    └────────────────────────┘
+```
 
-1. **Activer le registre de conteneurs** sur le projet :  
-   GitLab → Settings → General → Visibility → Container registry → Enabled
+**Votre poste interne fait le relais** : il a accès à GitHub (internet) et à GitLab (intranet). Les serveurs RHEL9 n'ont accès qu'au GitLab interne.
 
-2. **Cloner / pousser le code** vers le GitLab interne :
-   ```bash
-   git remote add gitlab git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git
-   git push gitlab main
-   ```
+---
 
-3. **Créer un tag** pour déclencher le build :
-   ```bash
-   git tag v1.0.0
-   git push gitlab v1.0.0
-   ```
+### Mise en place initiale (une seule fois sur votre poste)
+
+```bash
+# Cloner depuis GitHub (si pas encore fait)
+git clone https://github.com/Arnaud-cpu64/WG-SelfRepo.git
+cd WG-SelfRepo
+
+# Ajouter GitLab comme second remote
+git remote add gitlab git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git
+
+# Vérifier les deux remotes
+git remote -v
+# origin  https://github.com/Arnaud-cpu64/WG-SelfRepo.git  (fetch/push)
+# gitlab  git@git.devops.etat-ge.ch:...                    (fetch/push)
+```
+
+### Workflow de publication d'une nouvelle version
+
+```bash
+# 1. Récupérer les dernières modifications depuis GitHub
+git pull origin main
+
+# 2. Pousser vers GitLab pour déclencher le CI
+git push gitlab main
+
+# 3. Créer un tag versionné → déclenche le build des images Docker
+git tag v1.0.0
+git push gitlab v1.0.0
+```
 
 GitLab CI lance 3 jobs en parallèle (`build-api`, `build-dashboard`, `build-migrator`) et pousse les images dans :
 ```
@@ -73,15 +117,27 @@ registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget/wg-repo-dashboar
 registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget/wg-repo-migrator:v1.0.0
 ```
 
-> **Note :** Le hostname du registre (`registry.devops.etat-ge.ch`) peut varier selon la configuration du serveur GitLab. Vérifiez dans votre projet GitLab sous **Settings → Packages and registries → Container registry** pour obtenir l'URL exacte. GitLab y affiche aussi la commande `docker login` prête à l'emploi.
+> **Hostname du registre :** vérifiez l'URL exacte dans GitLab → **Settings → Packages and registries → Container registry**. GitLab y affiche aussi la commande `docker login` prête à l'emploi.
 
-### Connexion au registre depuis les serveurs RHEL9
+### Activer le registre de conteneurs GitLab
+
+GitLab → Settings → General → Visibility → Container registry → **Enabled**
+
+### Déploiement sur les serveurs RHEL9
+
+Une fois le build CI terminé, depuis chaque serveur :
 
 ```bash
+# Se connecter au registre GitLab (une seule fois, ou après expiration du token)
 docker login registry.devops.etat-ge.ch -u <utilisateur> -p <token-accès-personnel>
+
+# Mettre à jour les images et redémarrer les conteneurs
+cd /opt/wg-repo/deploy
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-> Créer un **token d'accès personnel** (Personal Access Token) dans GitLab sous **User Settings → Access Tokens**, avec le scope `read_registry`.
+> Créer un **Personal Access Token** GitLab sous **User Settings → Access Tokens** avec le scope `read_registry`.
 
 ---
 
