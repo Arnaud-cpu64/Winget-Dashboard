@@ -56,8 +56,8 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
            ▼
   ┌─────────────────────┐
   │  GitHub              │  ← sauvegarde / collaboration externe
-  │  Arnaud-cpu64/       │
-  │  WG-SelfRepo         │
+  │  arnaud-edu-cpu64/   │
+  │  Winget-Dashboard    │
   └─────────────────────┘
            │
            │  git pull  (depuis le poste interne)
@@ -84,16 +84,16 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 
 ```bash
 # Cloner depuis GitHub (si pas encore fait)
-git clone https://github.com/Arnaud-cpu64/WG-SelfRepo.git
-cd WG-SelfRepo
+git clone git@github.com:arnaud-edu-cpu64/Winget-Dashboard.git
+cd Winget-Dashboard
 
 # Ajouter GitLab comme second remote
 git remote add gitlab git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git
 
 # Vérifier les deux remotes
 git remote -v
-# origin  https://github.com/Arnaud-cpu64/WG-SelfRepo.git  (fetch/push)
-# gitlab  git@git.devops.etat-ge.ch:...                    (fetch/push)
+# origin  git@github.com:arnaud-edu-cpu64/Winget-Dashboard.git  (fetch/push)
+# gitlab  git@git.devops.etat-ge.ch:...                         (fetch/push)
 ```
 
 ### Workflow de publication d'une nouvelle version
