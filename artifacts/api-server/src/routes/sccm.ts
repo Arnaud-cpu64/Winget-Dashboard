@@ -95,7 +95,7 @@ Write-Output "Déploiement terminé."
 
 router.get("/packages/export", async (req, res): Promise<void> => {
   const format = typeof req.query.format === "string" ? req.query.format : "json";
-  const repoName = typeof req.query.repo === "string" ? req.query.repo : "MonRepo";
+  const repoName = typeof req.query.repo === "string" ? req.query.repo : "eduwinget";
 
   const packages = await db
     .select()
@@ -146,7 +146,7 @@ router.get("/packages/export", async (req, res): Promise<void> => {
 });
 
 router.get("/packages/sccm-scripts", async (req, res): Promise<void> => {
-  const repoName = typeof req.query.repo === "string" ? req.query.repo : "MonRepo";
+  const repoName = typeof req.query.repo === "string" ? req.query.repo : "eduwinget";
 
   const rawIds = req.query.ids;
   let ids: number[] = [];

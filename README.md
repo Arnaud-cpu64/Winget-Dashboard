@@ -86,36 +86,55 @@ docker login registry.gitlab.interne -u <utilisateur> -p <token-accès-personnel
 ### Prérequis
 
 - Docker CE + plugin Compose (voir [Installation Docker sur RHEL9](#installation-docker-rhel9))
-- Accès à `ghcr.io` (GitHub Container Registry)
+- Accès au registre Docker GitLab interne
+- Certificats TLS émis par l'autorité de certification interne
 
-### 1. Connexion au registre
+### 1. Préparer les certificats TLS
+
+Créer le dossier de certificats sur chaque serveur et y déposer les fichiers :
 
 ```bash
-docker login ghcr.io -u <votre-login-github> -p <votre-PAT>
+sudo mkdir -p /opt/wg-repo/certs
+sudo chmod 700 /opt/wg-repo/certs
+
+# Copier les fichiers depuis votre PKI :
+#   cert.pem — certificat du serveur + chaîne intermédiaire complète (fullchain)
+#   key.pem  — clé privée (sans mot de passe)
+sudo cp /chemin/vers/fullchain.pem /opt/wg-repo/certs/cert.pem
+sudo cp /chemin/vers/private.key   /opt/wg-repo/certs/key.pem
+sudo chmod 600 /opt/wg-repo/certs/key.pem
 ```
 
-> Le PAT doit avoir le scope `read:packages`.
+> **Important :** `cert.pem` doit contenir le certificat du serveur **suivi** des certificats intermédiaires de l'AC interne, concaténés dans l'ordre (du plus spécifique au plus général). Sans la chaîne complète, Windows refusera de faire confiance à la source Winget.
 
-### 2. Configuration
+### 2. Connexion au registre GitLab
+
+```bash
+docker login registry.gitlab.interne -u <utilisateur> -p <token-accès-personnel>
+```
+
+### 3. Configuration
 
 ```bash
 cd deploy/
-cp .env.example .env.prod
+cp .env.prod.example .env.prod    # pour la PROD
+cp .env.rec.example  .env.rec     # pour la REC
 ```
 
-Remplir `.env.prod` :
+Remplir `.env.prod` (les valeurs à adapter) :
 
 ```env
-# Registre GitLab interne
 REGISTRY=registry.gitlab.interne/groupe/wg-selfRepo
 TAG=v1.0.0
 POSTGRES_PASSWORD=mot-de-passe-fort
-HTTP_PORT=80
+CERTS_DIR=/opt/wg-repo/certs
 ```
 
-### 3. Démarrage
+> `CERTS_DIR` doit pointer vers le dossier préparé à l'étape 1.
 
-**Environnement PROD** (redémarrage automatique, port 80) :
+### 4. Démarrage
+
+**Environnement PROD** (ports 80 → redirige HTTPS et 443 → TLS) :
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
@@ -127,11 +146,14 @@ docker compose -f docker-compose.yml -f docker-compose.rec.yml --env-file .env.r
 
 La migration de base de données s'applique automatiquement au premier démarrage.
 
-### 4. Vérification
+### 5. Vérification
 
 ```bash
 docker compose ps
-curl http://localhost/api/packages
+# Vérifier la redirection HTTP → HTTPS
+curl -I http://localhost
+# Vérifier l'API via HTTPS (k = ignore erreur cert si l'AC interne n'est pas dans le trust store)
+curl -k https://localhost/api/packages
 ```
 
 ---
@@ -154,16 +176,26 @@ Ce serveur implémente le protocole **Microsoft.Rest** (Winget REST API v1.1).
 
 ### Enregistrer la source sur un poste Windows
 
+**Production :**
 ```powershell
-winget source add --name "MonDépôt" --arg https://<hôte>/winget --type "Microsoft.Rest"
+winget source add --name "eduwinget" --arg https://eduwinget.ceti.etat-ge.ch/winget --type "Microsoft.Rest"
+```
+
+**Recette :**
+```powershell
+winget source add --name "eduwinget-rec" --arg https://eduwinget.rec.etat-ge.ch/winget --type "Microsoft.Rest"
+```
+
+Vérification :
+```powershell
 winget source list
 ```
 
 ### Installer un paquet depuis la source
 
 ```powershell
-winget install --id Mozilla.Firefox --source MonDépôt
-winget upgrade --source MonDépôt --all
+winget install --id Mozilla.Firefox --source eduwinget
+winget upgrade --source eduwinget --all
 ```
 
 ### Endpoints Winget exposés
@@ -186,14 +218,14 @@ Accessible dans le tableau de bord via **Intégration SCCM**.
 
 ### Scripts générés automatiquement
 
-Pour chaque paquet, deux scripts PowerShell sont générés :
+Pour chaque paquet, deux scripts PowerShell sont générés (nom de source configurable dans l'interface) :
 
 **Script de détection** — renvoie `0` si le paquet est installé (et à la bonne version), `1` sinon :
 
 ```powershell
 # Coller dans : SCCM → Déploiements → Type de déploiement → Méthode de détection
 $PackageId = "Mozilla.Firefox"
-$RepoName  = "MonDépôt"
+$RepoName  = "eduwinget"
 $output = winget list --id $PackageId --source $RepoName --accept-source-agreements 2>$null
 if ($output -match [regex]::Escape($PackageId)) { exit 0 } else { exit 1 }
 ```
@@ -202,21 +234,23 @@ if ($output -match [regex]::Escape($PackageId)) { exit 0 } else { exit 1 }
 
 ```powershell
 # Coller dans : SCCM → Déploiements → Type de déploiement → Programme d'installation
-winget install --id Mozilla.Firefox --source MonDépôt --silent --accept-package-agreements --accept-source-agreements
+winget install --id Mozilla.Firefox --source eduwinget --silent --accept-package-agreements --accept-source-agreements
 ```
+
+> Le nom de source (`eduwinget`) doit correspondre à celui utilisé lors du `winget source add` sur les postes clients.
 
 ### Export du catalogue
 
 | Format | URL | Description |
 |--------|-----|-------------|
-| JSON | `GET /api/packages/export?format=json&repo=MonDépôt` | Catalogue complet en JSON |
-| CSV | `GET /api/packages/export?format=csv&repo=MonDépôt` | Import Excel / SCCM |
-| PowerShell | `GET /api/packages/export?format=powershell&repo=MonDépôt` | Script d'installation groupé |
+| JSON | `GET /api/packages/export?format=json&repo=eduwinget` | Catalogue complet en JSON |
+| CSV | `GET /api/packages/export?format=csv&repo=eduwinget` | Import Excel / SCCM |
+| PowerShell | `GET /api/packages/export?format=powershell&repo=eduwinget` | Script d'installation groupé |
 
 Scripts par paquet :
 
 ```
-GET /api/packages/sccm-scripts?ids=1,2,3&repo=MonDépôt
+GET /api/packages/sccm-scripts?ids=1,2,3&repo=eduwinget
 ```
 
 ---

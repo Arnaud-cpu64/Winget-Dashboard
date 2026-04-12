@@ -6,9 +6,8 @@
 #   REC  : docker compose -f docker-compose.yml -f docker-compose.rec.yml  --env-file .env.rec  up -d
 #
 # Doit être exécuté depuis le dossier deploy/
-# La variable REGISTRY doit pointer vers votre registre :
-#   GitLab interne : registry.gitlab.interne/groupe/wg-selfRepo
-#   GHCR           : ghcr.io/Arnaud-cpu64
+# REGISTRY  : chemin de base des images (ex: registry.gitlab.interne/groupe/wg-selfRepo)
+# CERTS_DIR : dossier sur l'hôte contenant cert.pem et key.pem
 # ============================================================
 
 name: wg-repo
@@ -59,12 +58,15 @@ services:
         condition: service_completed_successfully
 
   # ----------------------------------------------------------
-  # Dashboard — nginx + fichiers statiques React
+  # Dashboard — nginx + TLS + fichiers statiques React
   # ----------------------------------------------------------
   dashboard:
     image: ${REGISTRY:?Définir REGISTRY dans .env}/wg-repo-dashboard:${TAG:-latest}
     ports:
-      - "${HTTP_PORT:-80}:80"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ${CERTS_DIR:?Définir CERTS_DIR dans .env}:/etc/nginx/certs:ro
     depends_on:
       - api
 

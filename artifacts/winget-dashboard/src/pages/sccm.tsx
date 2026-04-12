@@ -159,7 +159,7 @@ export default function SccmPage() {
 
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [repoName, setRepoName] = useState("MonRepo");
+  const [repoName, setRepoName] = useState("eduwinget");
   const [activePackageId, setActivePackageId] = useState<number | null>(null);
 
   const filtered = useMemo(
@@ -287,7 +287,7 @@ export default function SccmPage() {
               <Input
                 value={repoName}
                 onChange={(e) => setRepoName(e.target.value)}
-                placeholder="MonRepo"
+                placeholder="eduwinget"
                 className="font-mono bg-background/50 border-border focus-visible:ring-primary h-9"
               />
             </div>

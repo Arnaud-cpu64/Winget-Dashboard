@@ -1,8 +1,8 @@
 # ============================================================
-# docker-compose.rec.yml — Surcharges RECETTE (staging)
+# docker-compose.rec.yml — Surcharges RECETTE
 #
 # Serveur RHEL9 REC — restart souple, volumes nommés rec
-# Port 8080 par défaut pour éviter le conflit avec d'autres services
+# URL : https://eduwinget.rec.etat-ge.ch
 # ============================================================
 
 name: wg-repo-rec
@@ -22,8 +22,6 @@ services:
 
   dashboard:
     restart: unless-stopped
-    ports:
-      - "${HTTP_PORT:-8080}:80"
 
 volumes:
   db_data_rec:
