@@ -54,9 +54,9 @@ Le fichier `.gitlab-ci.yml` à la racine configure automatiquement la constructi
 1. **Activer le registre de conteneurs** sur le projet :  
    GitLab → Settings → General → Visibility → Container registry → Enabled
 
-2. **Pousser le code** vers votre GitLab interne :
+2. **Cloner / pousser le code** vers le GitLab interne :
    ```bash
-   git remote add gitlab https://gitlab.interne/groupe/wg-selfRepo.git
+   git remote add gitlab git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git
    git push gitlab main
    ```
 
@@ -68,16 +68,20 @@ Le fichier `.gitlab-ci.yml` à la racine configure automatiquement la constructi
 
 GitLab CI lance 3 jobs en parallèle (`build-api`, `build-dashboard`, `build-migrator`) et pousse les images dans :
 ```
-registry.gitlab.interne/groupe/wg-selfRepo/wg-repo-api:v1.0.0
-registry.gitlab.interne/groupe/wg-selfRepo/wg-repo-dashboard:v1.0.0
-registry.gitlab.interne/groupe/wg-selfRepo/wg-repo-migrator:v1.0.0
+registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget/wg-repo-api:v1.0.0
+registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget/wg-repo-dashboard:v1.0.0
+registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget/wg-repo-migrator:v1.0.0
 ```
+
+> **Note :** Le hostname du registre (`registry.devops.etat-ge.ch`) peut varier selon la configuration du serveur GitLab. Vérifiez dans votre projet GitLab sous **Settings → Packages and registries → Container registry** pour obtenir l'URL exacte. GitLab y affiche aussi la commande `docker login` prête à l'emploi.
 
 ### Connexion au registre depuis les serveurs RHEL9
 
 ```bash
-docker login registry.gitlab.interne -u <utilisateur> -p <token-accès-personnel>
+docker login registry.devops.etat-ge.ch -u <utilisateur> -p <token-accès-personnel>
 ```
+
+> Créer un **token d'accès personnel** (Personal Access Token) dans GitLab sous **User Settings → Access Tokens**, avec le scope `read_registry`.
 
 ---
 
@@ -110,7 +114,7 @@ sudo chmod 600 /opt/wg-repo/certs/key.pem
 ### 2. Connexion au registre GitLab
 
 ```bash
-docker login registry.gitlab.interne -u <utilisateur> -p <token-accès-personnel>
+docker login registry.devops.etat-ge.ch -u <utilisateur> -p <token-accès-personnel>
 ```
 
 ### 3. Configuration

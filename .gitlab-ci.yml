@@ -6,9 +6,11 @@
 #   - Push d'un tag vX.Y.Z  → images taguées vX.Y.Z + latest
 #   - Pipeline manuel        → tag "latest"
 #
+# Dépôt GitLab : git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git
+#
 # Variables GitLab injectées automatiquement :
-#   CI_REGISTRY          — hostname du registre (ex: registry.gitlab.interne)
-#   CI_REGISTRY_IMAGE    — chemin complet (ex: registry.gitlab.interne/groupe/wg-selfRepo)
+#   CI_REGISTRY          — hostname du registre (ex: registry.devops.etat-ge.ch)
+#   CI_REGISTRY_IMAGE    — chemin complet (ex: registry.devops.etat-ge.ch/DEVELOPPEUR-PEDAGO/windows/SEMWinget)
 #   CI_REGISTRY_USER     — utilisateur pour docker login
 #   CI_REGISTRY_PASSWORD — token pour docker login
 # ============================================================
