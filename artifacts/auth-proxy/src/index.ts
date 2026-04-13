@@ -1,6 +1,6 @@
 import express from "express";
 import session from "express-session";
-import ldap from "ldapjs";
+import { Client } from "ldapts";
 import { createServer } from "http";
 
 const app = express();
@@ -19,7 +19,6 @@ const LDAP_BASE_DN = process.env.LDAP_BASE_DN ?? "DC=ge-pedago,DC=etat-ge,DC=ch"
 const LDAP_USER_BASE = process.env.LDAP_USER_BASE ?? `OU=Utilisateurs,${LDAP_BASE_DN}`;
 const LDAP_GROUP_DN = process.env.LDAP_GROUP_DN ?? `CN=GAP-Winget,OU=Groupes,${LDAP_BASE_DN}`;
 const LDAP_DOMAIN = process.env.LDAP_DOMAIN ?? "ge-pedago";
-const UPSTREAM_URL = process.env.UPSTREAM_URL ?? "http://localhost:3001";
 const SESSION_MAX_AGE = parseInt(process.env.SESSION_MAX_AGE_HOURS ?? "8", 10) * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------
@@ -41,118 +40,61 @@ app.use(
 // ---------------------------------------------------------------
 // Helpers LDAP
 // ---------------------------------------------------------------
-function createLdapClient(): ldap.Client {
-  // Essayer les DCs dans l'ordre, utiliser le premier qui répond
+function createLdapClient(): Client {
   const url = LDAP_URLS[Math.floor(Math.random() * LDAP_URLS.length)];
-  return ldap.createClient({
+  return new Client({
     url,
-    timeout: 5000,
     connectTimeout: 5000,
+    timeout: 5000,
     tlsOptions: { rejectUnauthorized: false }, // AC interne auto-signée
   });
 }
 
-async function ldapAuthenticate(username: string, password: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    // UPN : utilisateur@domaine
-    const userDN = `${username}@${LDAP_DOMAIN}`;
-    const client = createLdapClient();
+/**
+ * Authentifie l'utilisateur, vérifie son appartenance au groupe,
+ * et retourne son displayName — en une seule connexion LDAP.
+ * Retourne null si échec.
+ */
+async function ldapLogin(
+  username: string,
+  password: string
+): Promise<{ displayName: string } | null> {
+  const client = createLdapClient();
+  const userDN = `${username}@${LDAP_DOMAIN}`;
 
-    client.on("error", () => resolve(false));
+  try {
+    // 1. Bind avec les credentials de l'utilisateur
+    await client.bind(userDN, password);
 
-    client.bind(userDN, password, (err) => {
-      if (err) {
-        client.destroy();
-        resolve(false);
-        return;
-      }
-      client.unbind();
-      resolve(true);
+    // 2. Chercher l'utilisateur + vérifier le groupe en une seule requête
+    const { searchEntries } = await client.search(LDAP_USER_BASE, {
+      filter: `(&(objectClass=user)(sAMAccountName=${username})(memberOf=${LDAP_GROUP_DN}))`,
+      scope: "sub",
+      attributes: ["sAMAccountName", "displayName"],
+      sizeLimit: 1,
+      timeLimit: 5,
     });
-  });
-}
 
-async function ldapCheckGroup(username: string, bindPassword: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const userDN = `${username}@${LDAP_DOMAIN}`;
-    const client = createLdapClient();
+    if (searchEntries.length === 0) {
+      return null; // Pas dans le groupe
+    }
 
-    client.on("error", () => resolve(false));
+    const entry = searchEntries[0];
+    const displayName =
+      (Array.isArray(entry["displayName"])
+        ? entry["displayName"][0]
+        : entry["displayName"]) ?? username;
 
-    client.bind(userDN, bindPassword, (bindErr) => {
-      if (bindErr) {
-        client.destroy();
-        resolve(false);
-        return;
-      }
-
-      const opts: ldap.SearchOptions = {
-        filter: `(&(objectClass=user)(sAMAccountName=${username})(memberOf=${LDAP_GROUP_DN}))`,
-        scope: "sub",
-        attributes: ["sAMAccountName", "displayName"],
-        timeLimit: 5,
-        sizeLimit: 1,
-      };
-
-      client.search(LDAP_USER_BASE, opts, (searchErr, res) => {
-        if (searchErr) {
-          client.unbind();
-          resolve(false);
-          return;
-        }
-
-        let found = false;
-        let displayName = "";
-
-        res.on("searchEntry", (entry) => {
-          found = true;
-          const dn = entry.attributes.find((a) => a.type === "displayName");
-          displayName = dn ? String(dn.values[0]) : username;
-        });
-
-        res.on("end", () => {
-          client.unbind();
-          resolve(found);
-        });
-
-        res.on("error", () => {
-          client.unbind();
-          resolve(false);
-        });
-      });
-    });
-  });
-}
-
-async function ldapGetDisplayName(username: string, password: string): Promise<string> {
-  return new Promise((resolve) => {
-    const userDN = `${username}@${LDAP_DOMAIN}`;
-    const client = createLdapClient();
-
-    client.on("error", () => resolve(username));
-
-    client.bind(userDN, password, (bindErr) => {
-      if (bindErr) { client.destroy(); resolve(username); return; }
-
-      const opts: ldap.SearchOptions = {
-        filter: `(sAMAccountName=${username})`,
-        scope: "sub",
-        attributes: ["displayName"],
-        sizeLimit: 1,
-      };
-
-      client.search(LDAP_USER_BASE, opts, (err, res) => {
-        if (err) { client.unbind(); resolve(username); return; }
-        let name = username;
-        res.on("searchEntry", (e) => {
-          const attr = e.attributes.find((a) => a.type === "displayName");
-          if (attr) name = String(attr.values[0]);
-        });
-        res.on("end", () => { client.unbind(); resolve(name); });
-        res.on("error", () => { client.unbind(); resolve(username); });
-      });
-    });
-  });
+    return { displayName: String(displayName) };
+  } catch {
+    return null;
+  } finally {
+    try {
+      await client.unbind();
+    } catch {
+      // ignorer
+    }
+  }
 }
 
 // ---------------------------------------------------------------
@@ -282,21 +224,18 @@ app.post("/auth/login", async (req, res) => {
   }
 
   try {
-    const authenticated = await ldapAuthenticate(username, password);
-    if (!authenticated) {
-      res.send(loginPage("Identifiants incorrects. Vérifiez votre nom d'utilisateur et mot de passe."));
+    const result = await ldapLogin(username, password);
+
+    if (!result) {
+      res.send(
+        loginPage(
+          "Identifiants incorrects ou accès refusé. Vérifiez que vous êtes membre du groupe <strong>GAP-Winget</strong>."
+        )
+      );
       return;
     }
 
-    const inGroup = await ldapCheckGroup(username, password);
-    if (!inGroup) {
-      res.send(loginPage("Accès refusé. Vous n'êtes pas membre du groupe <strong>GAP-Winget</strong>."));
-      return;
-    }
-
-    const displayName = await ldapGetDisplayName(username, password);
-
-    (req.session as any).user = { username, displayName };
+    (req.session as any).user = { username, displayName: result.displayName };
     req.session.save(() => {
       const redirect = (req.session as any).returnTo ?? "/";
       delete (req.session as any).returnTo;
@@ -314,22 +253,7 @@ app.post("/auth/logout", (req, res) => {
 });
 
 // ---------------------------------------------------------------
-// Middleware d'authentification pour toutes les autres routes
-// ---------------------------------------------------------------
-app.use((req, res, next) => {
-  if ((req.session as any).user) {
-    next();
-    return;
-  }
-  (req.session as any).returnTo = req.originalUrl;
-  res.redirect("/auth/login");
-});
-
-// ---------------------------------------------------------------
-// Proxy vers le dashboard (fichiers statiques servis par nginx interne)
-// Cette route est utilisée si auth-proxy est devant nginx
-// En production, nginx gère directement le proxy après validation
-// du cookie de session via auth_request.
+// Endpoint vérifié par nginx via auth_request
 // ---------------------------------------------------------------
 app.get("/auth/check", (req, res) => {
   const user = (req.session as any).user;
