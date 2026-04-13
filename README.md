@@ -50,33 +50,29 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 ### Schéma des flux
 
 ```
-  [Replit / développeur externe]
-           │
-           │  git push (GitHub public)
-           ▼
-  ┌─────────────────────┐
-  │  GitHub              │  ← sauvegarde / collaboration externe
-  │  arnaud-edu-cpu64/   │
-  │  Winget-Dashboard    │
-  └─────────────────────┘
-           │
-           │  git pull  (depuis le poste interne)
-           │  git push  (vers GitLab interne)
-           ▼
-  ┌─────────────────────┐          ┌──────────────────────────────┐
-  │  GitLab interne      │ CI/CD ──►│  Registre Docker GitLab      │
-  │  git.devops.         │          │  registry.devops.etat-ge.ch  │
-  │  etat-ge.ch          │          └──────────────────────────────┘
-  └─────────────────────┘                        │
-                                                 │  docker compose pull
-                                                 ▼
-                                    ┌────────────────────────┐
-                                    │  Serveurs RHEL9         │
-                                    │  PROD / REC             │
-                                    └────────────────────────┘
+  [Replit]  ──push──►  [GitHub]  ──tag vX.Y.Z──►  [GitHub Actions]
+                           │                               │
+                       git pull                    Build 3 images Docker
+                       git push                           │
+                           │                              ▼
+                      [GitLab interne]        [GHCR — ghcr.io]
+                      validation TS            ghcr.io/arnaud-edu-cpu64/
+                                              wg-repo-api
+                                              wg-repo-dashboard
+                                              wg-repo-migrator
+                                                           │
+                                                   docker compose pull
+                                                           │
+                                              ┌────────────────────────┐
+                                              │  Serveurs RHEL9         │
+                                              │  PROD / REC             │
+                                              │  (accès GHCR ouvert)    │
+                                              └────────────────────────┘
 ```
 
-**Votre poste interne fait le relais** : il a accès à GitHub (internet) et à GitLab (intranet). Les serveurs RHEL9 n'ont accès qu'au GitLab interne.
+**Votre poste fait le relais** entre GitHub (internet) et GitLab (intranet).  
+Les images Docker sont construites par GitHub Actions et publiées sur GHCR.  
+Les serveurs RHEL9 tirent les images depuis GHCR (accès réseau à ouvrir vers `ghcr.io`).
 
 ---
 
@@ -102,40 +98,54 @@ git remote -v
 # 1. Récupérer les dernières modifications depuis GitHub
 git pull origin main
 
-# 2. Pousser vers GitLab (déclenche la validation CI)
+# 2. Pousser vers GitLab (déclenche la validation TypeScript)
 git push gitlab main
+
+# 3. Créer un tag → déclenche GitHub Actions qui construit et publie les images Docker
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-GitLab CI exécute automatiquement une **vérification TypeScript** pour valider le code.
+GitHub Actions construit les 3 images et les publie sur **GitHub Container Registry (GHCR)** :
+```
+ghcr.io/arnaud-edu-cpu64/wg-repo-api:v1.0.0
+ghcr.io/arnaud-edu-cpu64/wg-repo-dashboard:v1.0.0
+ghcr.io/arnaud-edu-cpu64/wg-repo-migrator:v1.0.0
+```
+
+### Rendre les packages GHCR accessibles aux serveurs
+
+Par défaut les packages GHCR sont privés. Deux options :
+
+**Option A — Rendre les packages publics** (plus simple) :  
+Sur github.com → **Packages** → chaque image → **Package settings** → Change visibility → **Public**
+
+**Option B — Authentification sur chaque serveur** :
+```bash
+# Créer un token GitHub avec le scope read:packages
+docker login ghcr.io -u arnaud-edu-cpu64 -p <github-token>
+```
 
 ### Déploiement sur les serveurs RHEL9
 
-Les images Docker sont construites **directement sur le serveur** depuis le code source — aucun registre Docker n'est requis.
-
 **Premier déploiement :**
 ```bash
-# Cloner le dépôt GitLab sur le serveur
+# Cloner le dépôt GitLab (pour avoir les fichiers docker-compose et .env)
 git clone git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git /opt/wg-repo
 cd /opt/wg-repo/deploy
 
-# Créer la configuration
 cp .env.prod.example .env.prod
-# → Éditer .env.prod : renseigner POSTGRES_PASSWORD et CERTS_DIR
+# → Éditer .env.prod : POSTGRES_PASSWORD et CERTS_DIR
 
-# Construire les images et démarrer
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-**Mise à jour après un push GitLab :**
+**Mise à jour après un nouveau tag GitHub :**
 ```bash
-cd /opt/wg-repo
-git pull
-
-cd deploy
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
+cd /opt/wg-repo/deploy
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
-
-> Le flag `--build` reconstruit uniquement les images dont le code source a changé. PostgreSQL et les données ne sont pas affectés.
 
 ---
 

@@ -1,14 +1,17 @@
 # ============================================================
 # docker-compose.yml — Configuration de base WG-Repo
 #
-# Les images sont construites directement sur le serveur
-# depuis le code source (pas de registre Docker requis).
+# Les images sont publiées sur GHCR par GitHub Actions
+# et tirées sur les serveurs via docker compose pull.
 #
 # Usage (depuis le dossier deploy/) :
-#   PROD : docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
-#   REC  : docker compose -f docker-compose.yml -f docker-compose.rec.yml  --env-file .env.rec  up -d --build
+#   PROD : docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
+#   REC  : docker compose -f docker-compose.yml -f docker-compose.rec.yml  --env-file .env.rec  up -d
 #
-# CERTS_DIR : dossier sur l'hôte contenant cert.pem et key.pem
+# Variables :
+#   REGISTRY  : ghcr.io/arnaud-edu-cpu64 (par défaut)
+#   TAG       : tag de l'image à déployer (ex: v1.0.0 ou latest)
+#   CERTS_DIR : dossier sur l'hôte contenant cert.pem et key.pem
 # ============================================================
 
 name: wg-repo
@@ -36,7 +39,7 @@ services:
   # Migrator — applique le schéma Drizzle (run-once)
   # ----------------------------------------------------------
   migrate:
-    image: wg-repo-migrator:latest
+    image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-migrator:${TAG:-latest}
     build:
       context: ..
       dockerfile: Dockerfile.migrator
@@ -50,7 +53,7 @@ services:
   # API — serveur Express/Node.js
   # ----------------------------------------------------------
   api:
-    image: wg-repo-api:latest
+    image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-api:${TAG:-latest}
     build:
       context: ..
       dockerfile: Dockerfile.api
@@ -68,7 +71,7 @@ services:
   # Dashboard — nginx + TLS + fichiers statiques React
   # ----------------------------------------------------------
   dashboard:
-    image: wg-repo-dashboard:latest
+    image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-dashboard:${TAG:-latest}
     build:
       context: ..
       dockerfile: Dockerfile.dashboard
