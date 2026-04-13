@@ -103,6 +103,22 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/wg-repo-migrator:${{ steps.tag.outputs.value }}
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/wg-repo-migrator:latest
 
+      # ----------------------------------------------------------
+      # Image Auth Proxy (LDAP/AD)
+      # ----------------------------------------------------------
+      - name: Build & Push — Auth Proxy
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.auth
+          push: true
+          platforms: linux/amd64
+          cache-from: type=gha,scope=auth
+          cache-to:   type=gha,scope=auth,mode=max
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/wg-repo-auth:${{ steps.tag.outputs.value }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/wg-repo-auth:latest
+
       - name: Résumé du déploiement
         run: |
           echo "## Images publiées 🐳" >> "$GITHUB_STEP_SUMMARY"
@@ -111,3 +127,4 @@ jobs:
           echo "| wg-repo-api | \`${{ steps.tag.outputs.value }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| wg-repo-dashboard | \`${{ steps.tag.outputs.value }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| wg-repo-migrator | \`${{ steps.tag.outputs.value }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| wg-repo-auth | \`${{ steps.tag.outputs.value }}\` |" >> "$GITHUB_STEP_SUMMARY"

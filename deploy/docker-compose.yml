@@ -1,17 +1,16 @@
 # ============================================================
 # docker-compose.yml — Configuration de base WG-Repo
 #
-# Les images sont publiées sur GHCR par GitHub Actions
-# et tirées sur les serveurs via docker compose pull.
+# Images publiées sur GHCR par GitHub Actions.
 #
 # Usage (depuis le dossier deploy/) :
 #   PROD : docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
 #   REC  : docker compose -f docker-compose.yml -f docker-compose.rec.yml  --env-file .env.rec  up -d
 #
 # Variables :
-#   REGISTRY  : ghcr.io/arnaud-edu-cpu64 (par défaut)
-#   TAG       : tag de l'image à déployer (ex: v1.0.0 ou latest)
-#   CERTS_DIR : dossier sur l'hôte contenant cert.pem et key.pem
+#   REGISTRY   : ghcr.io/arnaud-edu-cpu64 (par défaut)
+#   TAG        : tag de l'image (ex: v1.0.0 ou latest)
+#   CERTS_DIR  : dossier sur l'hôte contenant cert.pem et key.pem
 # ============================================================
 
 name: wg-repo
@@ -19,7 +18,7 @@ name: wg-repo
 services:
 
   # ----------------------------------------------------------
-  # PostgreSQL — base de données
+  # PostgreSQL
   # ----------------------------------------------------------
   db:
     image: postgres:16-alpine
@@ -50,7 +49,7 @@ services:
         condition: service_healthy
 
   # ----------------------------------------------------------
-  # API — serveur Express/Node.js
+  # API — Express/Node.js
   # ----------------------------------------------------------
   api:
     image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-api:${TAG:-latest}
@@ -68,7 +67,28 @@ services:
         condition: service_completed_successfully
 
   # ----------------------------------------------------------
-  # Dashboard — nginx + TLS + fichiers statiques React
+  # Auth Proxy — authentification LDAP/AD
+  # ----------------------------------------------------------
+  auth:
+    image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-auth:${TAG:-latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile.auth
+    environment:
+      PORT:             4000
+      SESSION_SECRET:   ${SESSION_SECRET:?La variable SESSION_SECRET est obligatoire}
+      # URLs des contrôleurs de domaine (séparées par des virgules)
+      LDAP_URLS:        ${LDAP_URLS:-ldap://ECUREUIL.ge-pedago.etat-ge.ch,ldap://ELEPHANT.ge-pedago.etat-ge.ch}
+      LDAP_BASE_DN:     ${LDAP_BASE_DN:-DC=ge-pedago,DC=etat-ge,DC=ch}
+      LDAP_USER_BASE:   ${LDAP_USER_BASE:-OU=Utilisateurs,DC=ge-pedago,DC=etat-ge,DC=ch}
+      LDAP_GROUP_DN:    ${LDAP_GROUP_DN:-CN=GAP-Winget,OU=Groupes,DC=ge-pedago,DC=etat-ge,DC=ch}
+      LDAP_DOMAIN:      ${LDAP_DOMAIN:-ge-pedago}
+      SESSION_MAX_AGE_HOURS: ${SESSION_MAX_AGE_HOURS:-8}
+    depends_on:
+      - api
+
+  # ----------------------------------------------------------
+  # Dashboard — nginx + TLS + auth_request
   # ----------------------------------------------------------
   dashboard:
     image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-dashboard:${TAG:-latest}
@@ -82,6 +102,7 @@ services:
       - ${CERTS_DIR:?Définir CERTS_DIR dans .env}:/etc/nginx/certs:ro
     depends_on:
       - api
+      - auth
 
 volumes:
   db_data:
