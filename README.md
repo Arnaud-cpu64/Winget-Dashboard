@@ -250,14 +250,20 @@ Pour tester sur une machine de dev sans certificats TLS :
 ```bash
 cd deploy
 
-# Lancer tous les services en HTTP sur le port 80
-docker compose -f docker-compose.dev.yml pull
+# Première fois (ou après modification de nginx.dev.conf) :
+# construit une image dashboard locale avec la config HTTP
+docker compose -f docker-compose.dev.yml build dashboard
+
+# Tirer les autres images et démarrer tous les services
+docker compose -f docker-compose.dev.yml pull api auth migrate
 docker compose -f docker-compose.dev.yml up -d
 ```
 
 Accéder à **http://localhost** — la page de login LDAP s'affiche.
 
 > Le service auth doit pouvoir joindre les DCs LDAP. Si votre machine de dev n'est pas sur le réseau interne, passez `LDAP_URLS` vers un DC accessible via VPN.
+
+> **Windows / Docker Desktop** : le dashboard est construit localement via `Dockerfile.dashboard.dev` pour éviter les problèmes de montage de fichier depuis un chemin réseau.
 
 ---
 
@@ -375,13 +381,14 @@ winget install --id Mozilla.Firefox --source eduwinget --silent --accept-package
 │   ├── nginx.conf           # Config nginx PROD (TLS + auth_request)
 │   ├── nginx.dev.conf       # Config nginx DEV (HTTP uniquement)
 │   ├── docker-compose.yml       # Configuration de base
-│   ├── docker-compose.dev.yml   # Environnement dev local (HTTP, sans TLS)
-│   ├── docker-compose.prod.yml  # Surcharges PROD
-│   ├── docker-compose.rec.yml   # Surcharges REC
-│   └── .env.prod.example    # Template de configuration PROD
+│   ├── docker-compose.dev.yml      # Environnement dev local (HTTP, sans TLS)
+│   ├── docker-compose.prod.yml     # Surcharges PROD
+│   ├── docker-compose.rec.yml      # Surcharges REC
+│   ├── Dockerfile.dashboard.dev    # Image dashboard dev (HTTP, sans TLS)
+│   └── .env.prod.example           # Template de configuration PROD
 ├── Dockerfile.api           # Image API
 ├── Dockerfile.auth          # Image Auth Proxy LDAP
-├── Dockerfile.dashboard     # Image Dashboard (nginx + statiques)
+├── Dockerfile.dashboard     # Image Dashboard (nginx + statiques + TLS)
 ├── Dockerfile.migrator      # Image migration Drizzle (run-once)
 ├── .gitlab-ci.yml           # Pipeline GitLab CI (validation TypeScript)
 └── .github/workflows/
