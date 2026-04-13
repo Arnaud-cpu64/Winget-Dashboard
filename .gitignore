@@ -51,3 +51,20 @@ Thumbs.db
 .replit
 .replitignore
 replit.nix
+
+# Fichiers d'environnement avec secrets (NE JAMAIS COMMITER)
+.env
+.env.local
+.env.*.local
+deploy/.env.prod
+deploy/.env.rec
+deploy/.env
+
+# Garder les fichiers .example (templates sans secrets)
+!deploy/.env.prod.example
+!deploy/.env.rec.example
+!deploy/.env.example
+
+# pnpm
+.pnpm-store/
+pnpm-store/
