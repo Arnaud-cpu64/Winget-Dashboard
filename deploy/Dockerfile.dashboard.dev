@@ -1,0 +1,2 @@
+FROM ghcr.io/arnaud-edu-cpu64/wg-repo-dashboard:latest
+COPY nginx.dev.conf /etc/nginx/conf.d/default.conf

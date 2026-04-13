@@ -61,11 +61,11 @@ services:
       - api
 
   dashboard:
-    image: ghcr.io/arnaud-edu-cpu64/wg-repo-dashboard:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard.dev
     ports:
       - "80:80"
-    volumes:
-      - ./nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - api
       - auth
