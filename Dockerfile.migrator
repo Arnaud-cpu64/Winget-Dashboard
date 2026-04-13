@@ -5,7 +5,7 @@
 
 FROM node:20-alpine
 
-RUN npm install -g pnpm@10 --silent
+RUN npm install -g pnpm@10.33.0 --silent
 
 WORKDIR /workspace
 
