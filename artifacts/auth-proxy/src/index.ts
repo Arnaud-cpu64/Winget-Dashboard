@@ -64,16 +64,29 @@ async function ldapLogin(
 
   try {
     // 1. Bind avec les credentials de l'utilisateur
-    await client.bind(userDN, password);
+    try {
+      await client.bind(userDN, password);
+      console.log(`[auth] Bind OK pour ${userDN}`);
+    } catch (bindErr) {
+      console.error(`[auth] Bind FAILED pour ${userDN}:`, (bindErr as Error).message);
+      return null;
+    }
 
     // 2. Chercher l'utilisateur + vérifier le groupe en une seule requête
+    // memberOf:1.2.840.113556.1.4.1941: = recherche récursive dans les groupes imbriqués
+    const filter = `(&(objectClass=user)(sAMAccountName=${username})(memberOf:1.2.840.113556.1.4.1941:=${LDAP_GROUP_DN}))`;
+    console.log(`[auth] Search base: ${LDAP_USER_BASE}`);
+    console.log(`[auth] Search filter: ${filter}`);
+
     const { searchEntries } = await client.search(LDAP_USER_BASE, {
-      filter: `(&(objectClass=user)(sAMAccountName=${username})(memberOf=${LDAP_GROUP_DN}))`,
+      filter,
       scope: "sub",
       attributes: ["sAMAccountName", "displayName"],
       sizeLimit: 1,
       timeLimit: 5,
     });
+
+    console.log(`[auth] Search résultat: ${searchEntries.length} entrée(s)`);
 
     if (searchEntries.length === 0) {
       return null; // Pas dans le groupe
@@ -86,7 +99,8 @@ async function ldapLogin(
         : entry["displayName"]) ?? username;
 
     return { displayName: String(displayName) };
-  } catch {
+  } catch (err) {
+    console.error(`[auth] Erreur inattendue:`, (err as Error).message);
     return null;
   } finally {
     try {
