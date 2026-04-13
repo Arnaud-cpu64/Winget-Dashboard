@@ -12,7 +12,8 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 - **Source Winget native** — compatible avec le protocole REST Winget v1.1 (`winget source add`)
 - **Intégration SCCM/MECM** — génération de scripts PowerShell de détection et d'installation
 - **Export** — catalogue exportable en CSV, JSON ou script PowerShell groupé
-- **Déploiement Docker** — 3 images légères, orchestrées via Docker Compose
+- **Authentification LDAP/AD** — accès réservé aux membres du groupe `GAP-Winget` du domaine `ge-pedago`
+- **Déploiement Docker** — 4 images légères, orchestrées via Docker Compose
 
 ---
 
@@ -25,10 +26,19 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 └────────────────────┬────────────────────────────┘
                      │ HTTPS
 ┌────────────────────▼────────────────────────────┐
-│  nginx                                           │
-│  /api/  →  api:3000                             │
-│  /*     →  fichiers statiques React              │
+│  nginx (image dashboard)                         │
+│  auth_request → auth:4000/auth/check             │
+│  /auth/   →  auth:4000   (login LDAP)           │
+│  /api/    →  api:3000    (protégé)               │
+│  /winget/ →  api:3000    (public, clients Win)   │
+│  /*       →  statiques React (protégé)           │
 └────────────────────┬────────────────────────────┘
+                     │
+┌────────────────────▼────────────────────────────┐
+│  Auth Proxy (Node.js)                            │
+│  Formulaire de login · validation LDAP/AD        │
+│  Vérification groupe GAP-Winget · session cookie │
+└─────────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────┐
 │  API Express (Node.js)                           │
@@ -45,6 +55,36 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 
 ---
 
+## Authentification LDAP/AD
+
+L'accès au dashboard est protégé par le service `auth-proxy` qui s'authentifie sur le domaine `ge-pedago.etat-ge.ch`.
+
+### Variables d'environnement requises
+
+| Variable | Exemple | Description |
+|----------|---------|-------------|
+| `SESSION_SECRET` | `openssl rand -hex 32` | Secret de chiffrement des sessions |
+| `LDAP_URLS` | `ldap://ECUREUIL.ge-pedago.etat-ge.ch,...` | DCs séparés par des virgules |
+| `LDAP_BASE_DN` | `DC=ge-pedago,DC=etat-ge,DC=ch` | Base DN du domaine |
+| `LDAP_USER_BASE` | `OU=Utilisateurs,OU=...,DC=ge-pedago,...` | OU contenant les utilisateurs |
+| `LDAP_GROUP_DN` | `CN=GAP-Winget,OU=Groupes,DC=ge-pedago,...` | DN complet du groupe d'accès |
+| `LDAP_DOMAIN` | `ge-pedago` | Préfixe UPN (utilisateur@ge-pedago) |
+
+> **Important :** `LDAP_USER_BASE` doit correspondre à l'OU réelle de votre AD. Vérifiez-la avec un outil LDAP (ex: Apache Directory Studio) avant le premier déploiement.
+
+### Contrôleurs de domaine disponibles
+
+```
+ECUREUIL.ge-pedago.etat-ge.ch
+ELEPHANT.ge-pedago.etat-ge.ch
+ENARGIA.ge-pedago.etat-ge.ch
+ERISTALE.ge-pedago.etat-ge.ch
+ESPADON.ge-pedago.etat-ge.ch
+EUMENES.ge-pedago.etat-ge.ch
+```
+
+---
+
 ## CI/CD — Workflow complet
 
 ### Schéma des flux
@@ -52,7 +92,7 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 ```
   [Replit]  ──push──►  [GitHub]  ──tag vX.Y.Z──►  [GitHub Actions]
                            │                               │
-                       git pull                    Build 3 images Docker
+                       git pull                    Build 4 images Docker
                        git push                           │
                            │                              ▼
                       [GitLab interne]        [GHCR — ghcr.io]
@@ -60,6 +100,7 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
                                               wg-repo-api
                                               wg-repo-dashboard
                                               wg-repo-migrator
+                                              wg-repo-auth
                                                            │
                                                    docker compose pull
                                                            │
@@ -102,15 +143,16 @@ git pull origin main
 git push gitlab main
 
 # 3. Créer un tag → déclenche GitHub Actions qui construit et publie les images Docker
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
-GitHub Actions construit les 3 images et les publie sur **GitHub Container Registry (GHCR)** :
+GitHub Actions construit les 4 images et les publie sur **GitHub Container Registry (GHCR)** :
 ```
-ghcr.io/arnaud-edu-cpu64/wg-repo-api:v1.0.0
-ghcr.io/arnaud-edu-cpu64/wg-repo-dashboard:v1.0.0
-ghcr.io/arnaud-edu-cpu64/wg-repo-migrator:v1.0.0
+ghcr.io/arnaud-edu-cpu64/wg-repo-api:v1.1.0
+ghcr.io/arnaud-edu-cpu64/wg-repo-dashboard:v1.1.0
+ghcr.io/arnaud-edu-cpu64/wg-repo-migrator:v1.1.0
+ghcr.io/arnaud-edu-cpu64/wg-repo-auth:v1.1.0
 ```
 
 ### Rendre les packages GHCR accessibles aux serveurs
@@ -126,56 +168,33 @@ Sur github.com → **Packages** → chaque image → **Package settings** → Ch
 docker login ghcr.io -u arnaud-edu-cpu64 -p <github-token>
 ```
 
-### Déploiement sur les serveurs RHEL9
-
-**Premier déploiement :**
-```bash
-# Cloner le dépôt GitLab (pour avoir les fichiers docker-compose et .env)
-git clone git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git /opt/wg-repo
-cd /opt/wg-repo/deploy
-
-cp .env.prod.example .env.prod
-# → Éditer .env.prod : POSTGRES_PASSWORD et CERTS_DIR
-
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
-```
-
-**Mise à jour après un nouveau tag GitHub :**
-```bash
-cd /opt/wg-repo/deploy
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
-```
-
 ---
 
-## Déploiement rapide (Docker)
+## Déploiement (Docker)
 
 ### Prérequis
 
 - Docker CE + plugin Compose (voir [Installation Docker sur RHEL9](#installation-docker-rhel9))
 - Accès SSH au dépôt GitLab interne
 - Certificats TLS émis par l'autorité de certification interne
+- Accès réseau vers les contrôleurs de domaine LDAP
 
 ### 1. Préparer les certificats TLS
-
-Créer le dossier de certificats sur chaque serveur et y déposer les fichiers :
 
 ```bash
 sudo mkdir -p /opt/wg-repo/certs
 sudo chmod 700 /opt/wg-repo/certs
 
-# Copier les fichiers depuis votre PKI :
-#   cert.pem — certificat du serveur + chaîne intermédiaire complète (fullchain)
-#   key.pem  — clé privée (sans mot de passe)
+# cert.pem — certificat serveur + chaîne intermédiaire complète (fullchain)
+# key.pem  — clé privée (sans mot de passe)
 sudo cp /chemin/vers/fullchain.pem /opt/wg-repo/certs/cert.pem
 sudo cp /chemin/vers/private.key   /opt/wg-repo/certs/key.pem
 sudo chmod 600 /opt/wg-repo/certs/key.pem
 ```
 
-> **Important :** `cert.pem` doit contenir le certificat du serveur **suivi** des certificats intermédiaires de l'AC interne, concaténés dans l'ordre (du plus spécifique au plus général). Sans la chaîne complète, Windows refusera de faire confiance à la source Winget.
+> `cert.pem` doit contenir le certificat serveur **suivi** des certificats intermédiaires de l'AC interne (fullchain). Sans la chaîne complète, Windows refusera de faire confiance à la source Winget.
 
-### 2. Cloner le dépôt GitLab sur le serveur
+### 2. Cloner le dépôt sur le serveur
 
 ```bash
 git clone git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git /opt/wg-repo
@@ -185,22 +204,22 @@ git clone git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git /op
 
 ```bash
 cd /opt/wg-repo/deploy
-cp .env.prod.example .env.prod    # pour la PROD
-cp .env.rec.example  .env.rec     # pour la REC
+cp .env.prod.example .env.prod
 ```
 
-Remplir `.env.prod` :
+Remplir `.env.prod` (variables obligatoires) :
 
 ```env
 POSTGRES_PASSWORD=mot-de-passe-fort
 CERTS_DIR=/opt/wg-repo/certs
+SESSION_SECRET=<résultat de : openssl rand -hex 32>
+LDAP_USER_BASE=OU=Utilisateurs,OU=<votre-OU>,DC=ge-pedago,DC=etat-ge,DC=ch
+LDAP_GROUP_DN=CN=GAP-Winget,OU=<votre-OU-groupes>,DC=ge-pedago,DC=etat-ge,DC=ch
 ```
-
-> `CERTS_DIR` doit pointer vers le dossier préparé à l'étape 1.
 
 ### 4. Démarrage
 
-**Environnement PROD** (ports 80 → redirige HTTPS et 443 → TLS) :
+**Environnement PROD :**
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
@@ -212,18 +231,33 @@ docker compose -f docker-compose.yml -f docker-compose.rec.yml --env-file .env.r
 docker compose -f docker-compose.yml -f docker-compose.rec.yml --env-file .env.rec up -d
 ```
 
-La migration de base de données s'applique automatiquement au premier démarrage.  
-Les images sont tirées depuis **GHCR** (`ghcr.io/arnaud-edu-cpu64`).
-
 ### 5. Vérification
 
 ```bash
 docker compose ps
 # Vérifier la redirection HTTP → HTTPS
 curl -I http://localhost
-# Vérifier l'API via HTTPS (k = ignore erreur cert si l'AC interne n'est pas dans le trust store)
+# Vérifier l'API (k = ignore erreur cert si l'AC interne n'est pas dans le trust store local)
 curl -k https://localhost/api/packages
 ```
+
+---
+
+## Développement local (sans TLS)
+
+Pour tester sur une machine de dev sans certificats TLS :
+
+```bash
+cd deploy
+
+# Lancer tous les services en HTTP sur le port 80
+docker compose -f docker-compose.dev.yml pull
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Accéder à **http://localhost** — la page de login LDAP s'affiche.
+
+> Le service auth doit pouvoir joindre les DCs LDAP. Si votre machine de dev n'est pas sur le réseau interne, passez `LDAP_URLS` vers un DC accessible via VPN.
 
 ---
 
@@ -267,7 +301,7 @@ winget install --id Mozilla.Firefox --source eduwinget
 winget upgrade --source eduwinget --all
 ```
 
-### Endpoints Winget exposés
+### Endpoints Winget exposés (sans authentification)
 
 | Méthode | Chemin | Description |
 |---------|--------|-------------|
@@ -277,7 +311,7 @@ winget upgrade --source eduwinget --all
 | `GET` | `/winget/packages/:id` | Détail d'un paquet |
 | `GET` | `/winget/packages/:id/versions` | Toutes les versions |
 | `GET` | `/winget/packages/:id/versions/:v` | Version spécifique |
-| `GET` | `/winget/packages/:id/versions/:v/manifests` | Manifestes YAML (version, locale, installer) |
+| `GET` | `/winget/packages/:id/versions/:v/manifests` | Manifestes YAML |
 
 ---
 
@@ -287,46 +321,30 @@ Accessible dans le tableau de bord via **Intégration SCCM**.
 
 ### Scripts générés automatiquement
 
-Pour chaque paquet, deux scripts PowerShell sont générés (nom de source configurable dans l'interface) :
-
-**Script de détection** — renvoie `0` si le paquet est installé (et à la bonne version), `1` sinon :
-
+**Script de détection** :
 ```powershell
-# Coller dans : SCCM → Déploiements → Type de déploiement → Méthode de détection
 $PackageId = "Mozilla.Firefox"
 $RepoName  = "eduwinget"
 $output = winget list --id $PackageId --source $RepoName --accept-source-agreements 2>$null
 if ($output -match [regex]::Escape($PackageId)) { exit 0 } else { exit 1 }
 ```
 
-**Script d'installation** — installe silencieusement via Winget :
-
+**Script d'installation** :
 ```powershell
-# Coller dans : SCCM → Déploiements → Type de déploiement → Programme d'installation
 winget install --id Mozilla.Firefox --source eduwinget --silent --accept-package-agreements --accept-source-agreements
 ```
-
-> Le nom de source (`eduwinget`) doit correspondre à celui utilisé lors du `winget source add` sur les postes clients.
 
 ### Export du catalogue
 
 | Format | URL | Description |
 |--------|-----|-------------|
-| JSON | `GET /api/packages/export?format=json&repo=eduwinget` | Catalogue complet en JSON |
+| JSON | `GET /api/packages/export?format=json&repo=eduwinget` | Catalogue complet |
 | CSV | `GET /api/packages/export?format=csv&repo=eduwinget` | Import Excel / SCCM |
-| PowerShell | `GET /api/packages/export?format=powershell&repo=eduwinget` | Script d'installation groupé |
-
-Scripts par paquet :
-
-```
-GET /api/packages/sccm-scripts?ids=1,2,3&repo=eduwinget
-```
+| PowerShell | `GET /api/packages/export?format=powershell&repo=eduwinget` | Script groupé |
 
 ---
 
 ## API REST interne
-
-### Packages
 
 | Méthode | Chemin | Description |
 |---------|--------|-------------|
@@ -340,40 +358,13 @@ GET /api/packages/sccm-scripts?ids=1,2,3&repo=eduwinget
 
 ---
 
-## Publication d'une nouvelle version
-
-### 1. Créer un tag sur GitHub → GitHub Actions construit les images
-
-```bash
-# Depuis votre poste (après git pull origin main)
-git tag v1.2.0
-git push origin v1.2.0
-```
-
-GitHub Actions construit les 3 images Docker et les pousse automatiquement sur GHCR.  
-Suivre l'avancement dans **GitHub → Actions → Build & Push Docker images**.
-
-### 2. Déployer sur le serveur
-
-```bash
-cd /opt/wg-repo/deploy
-
-# Mettre à jour le tag dans .env.prod si besoin
-sed -i 's/^TAG=.*/TAG=v1.2.0/' .env.prod
-
-# Tirer les nouvelles images et redémarrer
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
-```
-
----
-
 ## Structure du projet
 
 ```
 .
 ├── artifacts/
 │   ├── api-server/          # Serveur Express (Node.js + TypeScript)
+│   ├── auth-proxy/          # Service auth LDAP/AD (Node.js + ldapts)
 │   └── winget-dashboard/    # Frontend React + Vite (interface française)
 ├── lib/
 │   ├── db/                  # Schéma PostgreSQL (Drizzle ORM)
@@ -381,17 +372,20 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.
 │   ├── api-client-react/    # Client API généré (React Query)
 │   └── api-zod/             # Schémas Zod générés
 ├── deploy/
-│   ├── nginx.conf           # Reverse proxy nginx
-│   ├── docker-compose.yml   # Configuration de base
+│   ├── nginx.conf           # Config nginx PROD (TLS + auth_request)
+│   ├── nginx.dev.conf       # Config nginx DEV (HTTP uniquement)
+│   ├── docker-compose.yml       # Configuration de base
+│   ├── docker-compose.dev.yml   # Environnement dev local (HTTP, sans TLS)
 │   ├── docker-compose.prod.yml  # Surcharges PROD
 │   ├── docker-compose.rec.yml   # Surcharges REC
-│   └── .env.example         # Template de configuration
-├── Dockerfile.api           # Image API (esbuild bundle, ~60 Mo)
-├── Dockerfile.dashboard     # Image Dashboard (nginx + statiques, ~30 Mo)
+│   └── .env.prod.example    # Template de configuration PROD
+├── Dockerfile.api           # Image API
+├── Dockerfile.auth          # Image Auth Proxy LDAP
+├── Dockerfile.dashboard     # Image Dashboard (nginx + statiques)
 ├── Dockerfile.migrator      # Image migration Drizzle (run-once)
-├── .gitlab-ci.yml           # Pipeline GitLab CI (validation TypeScript uniquement)
+├── .gitlab-ci.yml           # Pipeline GitLab CI (validation TypeScript)
 └── .github/workflows/
-    └── release.yml          # Build & Push images Docker → GHCR (sur tag vX.Y.Z)
+    └── release.yml          # Build & Push 4 images Docker → GHCR
 ```
 
 ---
