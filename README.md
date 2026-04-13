@@ -202,16 +202,18 @@ CERTS_DIR=/opt/wg-repo/certs
 
 **Environnement PROD** (ports 80 → redirige HTTPS et 443 → TLS) :
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
 **Environnement REC :**
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.rec.yml --env-file .env.rec up -d --build
+docker compose -f docker-compose.yml -f docker-compose.rec.yml --env-file .env.rec pull
+docker compose -f docker-compose.yml -f docker-compose.rec.yml --env-file .env.rec up -d
 ```
 
 La migration de base de données s'applique automatiquement au premier démarrage.  
-Le flag `--build` construit les images Docker localement depuis le code source.
+Les images sont tirées depuis **GHCR** (`ghcr.io/arnaud-edu-cpu64`).
 
 ### 5. Vérification
 
@@ -340,28 +342,28 @@ GET /api/packages/sccm-scripts?ids=1,2,3&repo=eduwinget
 
 ## Publication d'une nouvelle version
 
-### Via GitLab CI (recommandé — registre interne)
+### 1. Créer un tag sur GitHub → GitHub Actions construit les images
 
 ```bash
+# Depuis votre poste (après git pull origin main)
 git tag v1.2.0
 git push origin v1.2.0
 ```
 
-GitLab CI construit automatiquement les 3 images et les pousse dans le registre interne.  
-Suivre l'avancement dans **GitLab → CI/CD → Pipelines**.
+GitHub Actions construit les 3 images Docker et les pousse automatiquement sur GHCR.  
+Suivre l'avancement dans **GitHub → Actions → Build & Push Docker images**.
 
-Sur le serveur, mettre à jour `TAG=v1.2.0` dans `.env.prod` puis :
+### 2. Déployer sur le serveur
 
 ```bash
+cd /opt/wg-repo/deploy
+
+# Mettre à jour le tag dans .env.prod si besoin
+sed -i 's/^TAG=.*/TAG=v1.2.0/' .env.prod
+
+# Tirer les nouvelles images et redémarrer
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod pull
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d
-```
-
-### Via GitHub Actions (si accès internet disponible)
-
-```bash
-git tag v1.2.0
-git push origin v1.2.0   # déclenche le workflow .github/workflows/release.yml
 ```
 
 ---
@@ -387,9 +389,9 @@ git push origin v1.2.0   # déclenche le workflow .github/workflows/release.yml
 ├── Dockerfile.api           # Image API (esbuild bundle, ~60 Mo)
 ├── Dockerfile.dashboard     # Image Dashboard (nginx + statiques, ~30 Mo)
 ├── Dockerfile.migrator      # Image migration Drizzle (run-once)
-├── .gitlab-ci.yml           # Pipeline GitLab CI (build → registre interne)
+├── .gitlab-ci.yml           # Pipeline GitLab CI (validation TypeScript uniquement)
 └── .github/workflows/
-    └── release.yml          # Build & Push GHCR (si accès internet)
+    └── release.yml          # Build & Push images Docker → GHCR (sur tag vX.Y.Z)
 ```
 
 ---
