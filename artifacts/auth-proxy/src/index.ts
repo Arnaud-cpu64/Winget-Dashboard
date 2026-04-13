@@ -17,7 +17,7 @@ const LDAP_URLS = (process.env.LDAP_URLS ?? "ldap://ECUREUIL.ge-pedago.etat-ge.c
   .map((u) => u.trim());
 const LDAP_BASE_DN = process.env.LDAP_BASE_DN ?? "DC=ge-pedago,DC=etat-ge,DC=ch";
 const LDAP_USER_BASE = process.env.LDAP_USER_BASE ?? `OU=Utilisateurs,${LDAP_BASE_DN}`;
-const LDAP_GROUP_DN = process.env.LDAP_GROUP_DN ?? `CN=GAP-Winget,OU=Groupes,${LDAP_BASE_DN}`;
+const LDAP_GROUP_DN = process.env.LDAP_GROUP_DN ?? `CN=GAP-Winget,OU=GAP,OU=DIP,OU=Groupes,OU=EDUV2018,OU=___,${LDAP_BASE_DN}`;
 const LDAP_DOMAIN = process.env.LDAP_DOMAIN ?? "ge-pedago";
 const SESSION_MAX_AGE = parseInt(process.env.SESSION_MAX_AGE_HOURS ?? "8", 10) * 60 * 60 * 1000;
 
