@@ -3,9 +3,9 @@
 #
 # Dépôt GitLab : git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git
 #
-# Le déploiement se fait directement sur les serveurs RHEL9
-# en clonant ce dépôt et en construisant les images Docker
-# localement (pas de registre Docker requis).
+# Les images Docker sont construites et publiées sur GHCR
+# par GitHub Actions (push d'un tag sur GitHub).
+# Ce pipeline valide uniquement que le code TypeScript compile.
 #
 # Déclencheurs : tout push sur main ou merge request
 # ============================================================
@@ -14,20 +14,23 @@ stages:
   - validate
 
 variables:
-  NODE_VERSION: "20"
+  # Forcer pnpm à utiliser un dossier de cache connu pour le cache GitLab CI
+  PNPM_HOME: "${CI_PROJECT_DIR}/.pnpm-store"
 
 # ------------------------------------------------------------------
 # Validation TypeScript — vérifie que le code compile sans erreurs
+# Utilise le script racine "typecheck" qui compile les libs
+# partagées avant de valider les artifacts (ordre correct)
 # ------------------------------------------------------------------
 validate:
   stage: validate
   image: node:20-slim
   before_script:
     - npm install -g pnpm@10 --silent
+    - pnpm config set store-dir $PNPM_HOME
     - pnpm install --frozen-lockfile
   script:
-    - pnpm --filter @workspace/api-server    exec tsc --noEmit
-    - pnpm --filter @workspace/winget-dashboard exec tsc --noEmit
+    - pnpm run typecheck
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -36,5 +39,5 @@ validate:
       files:
         - pnpm-lock.yaml
     paths:
-      - node_modules/
       - .pnpm-store/
+      - node_modules/
