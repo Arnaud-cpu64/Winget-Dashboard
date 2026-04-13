@@ -66,6 +66,7 @@ services:
       dockerfile: Dockerfile.dashboard.dev
     ports:
       - "80:80"
+    restart: unless-stopped
     depends_on:
       - api
       - auth
