@@ -1,0 +1,74 @@
+# ============================================================
+# docker-compose.dev.yml — Environnement de développement local
+#
+# Usage (depuis le dossier deploy/) :
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Accès : http://localhost
+# Pas de TLS, login LDAP actif (ou bypassé si LDAP inaccessible)
+# ============================================================
+
+name: wg-repo-dev
+
+services:
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       wgrepo
+      POSTGRES_USER:     wgrepo
+      POSTGRES_PASSWORD: devpassword
+    volumes:
+      - db_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wgrepo -d wgrepo"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+
+  migrate:
+    image: ghcr.io/arnaud-edu-cpu64/wg-repo-migrator:latest
+    environment:
+      DATABASE_URL: postgresql://wgrepo:devpassword@db:5432/wgrepo
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: ghcr.io/arnaud-edu-cpu64/wg-repo-api:latest
+    environment:
+      PORT:         3000
+      DATABASE_URL: postgresql://wgrepo:devpassword@db:5432/wgrepo
+      NODE_ENV:     production
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  auth:
+    image: ghcr.io/arnaud-edu-cpu64/wg-repo-auth:latest
+    environment:
+      PORT:                  4000
+      SESSION_SECRET:        dev-secret-non-securise-ne-pas-utiliser-en-prod
+      LDAP_URLS:             ${LDAP_URLS:-ldap://ECUREUIL.ge-pedago.etat-ge.ch}
+      LDAP_BASE_DN:          ${LDAP_BASE_DN:-DC=ge-pedago,DC=etat-ge,DC=ch}
+      LDAP_USER_BASE:        ${LDAP_USER_BASE:-OU=Utilisateurs,DC=ge-pedago,DC=etat-ge,DC=ch}
+      LDAP_GROUP_DN:         ${LDAP_GROUP_DN:-CN=GAP-Winget,OU=Groupes,DC=ge-pedago,DC=etat-ge,DC=ch}
+      LDAP_DOMAIN:           ${LDAP_DOMAIN:-ge-pedago}
+      SESSION_MAX_AGE_HOURS: 8
+    depends_on:
+      - api
+
+  dashboard:
+    image: ghcr.io/arnaud-edu-cpu64/wg-repo-dashboard:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - auth
+
+volumes:
+  db_data_dev:
