@@ -54,7 +54,7 @@ services:
       LDAP_URLS:             ${LDAP_URLS:-ldap://ECUREUIL.ge-pedago.etat-ge.ch}
       LDAP_BASE_DN:          ${LDAP_BASE_DN:-DC=ge-pedago,DC=etat-ge,DC=ch}
       LDAP_USER_BASE:        ${LDAP_USER_BASE:-OU=Utilisateurs,DC=ge-pedago,DC=etat-ge,DC=ch}
-      LDAP_GROUP_DN:         ${LDAP_GROUP_DN:-CN=GAP-Winget,OU=Groupes,DC=ge-pedago,DC=etat-ge,DC=ch}
+      LDAP_GROUP_DN:         ${LDAP_GROUP_DN:-CN=GAP-Winget,OU=GAP,OU=DIP,OU=Groupes,OU=EDUV2018,OU=___,DC=ge-pedago,DC=etat-ge,DC=ch}
       LDAP_DOMAIN:           ${LDAP_DOMAIN:-ge-pedago}
       SESSION_MAX_AGE_HOURS: 8
     depends_on:
