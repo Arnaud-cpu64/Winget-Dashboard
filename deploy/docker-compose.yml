@@ -21,8 +21,9 @@ services:
   # PostgreSQL
   # ----------------------------------------------------------
   db:
-    image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-postgres:16-alpine
-    environment:
+    #image: public.ecr.aws/docker/library/postgres:16-alpine
+     image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-postgres:${TAG:-latest}
+  environment:
       POSTGRES_DB:       ${POSTGRES_DB:-wgrepo}
       POSTGRES_USER:     ${POSTGRES_USER:-wgrepo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?La variable POSTGRES_PASSWORD est obligatoire}
