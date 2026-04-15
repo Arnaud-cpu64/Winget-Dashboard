@@ -134,11 +134,15 @@ const POPULAR_PACKAGES: [string, string, ...string[]][] = [
 
 async function fetchGitHubContents(path: string): Promise<GitHubContent[]> {
   const url = `${GITHUB_API}/repos/${REPO}/contents/${path}`;
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.v3+json",
+    "User-Agent": "winget-repo-dashboard/1.0",
+  };
+  const token = process.env.GITHUB_TOKEN;
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const response = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github.v3+json",
-      "User-Agent": "winget-repo-dashboard/1.0",
-    },
+    headers,
     signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) return [];
@@ -300,8 +304,8 @@ router.get("/winget/search", async (req, res): Promise<void> => {
     results.sort((a, b) => b._score - a._score);
     const topResults = results.slice(0, limit).map(({ _score: _s, ...rest }) => rest);
 
-    // Récupère les vraies versions en parallèle (max 4s, sinon "latest" en fallback)
-    const TIMEOUT_MS = 4000;
+    // Récupère les vraies versions en parallèle (max 6s, sinon "latest" en fallback)
+    const TIMEOUT_MS = 6000;
     const versionsOrTimeout = await Promise.race([
       Promise.all(topResults.map((pkg) =>
         getPackageVersion(pkg.packageId).catch(() => pkg.version)
