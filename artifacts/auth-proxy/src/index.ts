@@ -63,7 +63,7 @@ async function ldapLogin(
   const userDN = `${username}@${LDAP_DOMAIN}`;
 
   try {
-    // 1. Bind avec les credentials de l'utilisateur
+    // 1. Bind avec les credentials de l'utilisateur (vérifie le mot de passe)
     try {
       await client.bind(userDN, password);
       console.log(`[auth] Bind OK pour ${userDN}`);
@@ -72,27 +72,46 @@ async function ldapLogin(
       return null;
     }
 
-    // 2. Chercher l'utilisateur + vérifier le groupe en une seule requête
-    // memberOf:1.2.840.113556.1.4.1941: = recherche récursive dans les groupes imbriqués
-    const filter = `(&(objectClass=user)(sAMAccountName=${username})(memberOf:1.2.840.113556.1.4.1941:=${LDAP_GROUP_DN}))`;
+    // 2. Chercher l'utilisateur par sAMAccountName uniquement (filtre simple + indexé)
+    //    On récupère displayName ET memberOf pour vérifier le groupe côté client
     console.log(`[auth] Search base: ${LDAP_USER_BASE}`);
-    console.log(`[auth] Search filter: ${filter}`);
-
     const { searchEntries } = await client.search(LDAP_USER_BASE, {
-      filter,
+      filter: `(&(objectClass=user)(sAMAccountName=${username}))`,
       scope: "sub",
-      attributes: ["sAMAccountName", "displayName"],
+      attributes: ["sAMAccountName", "displayName", "memberOf"],
       sizeLimit: 1,
-      timeLimit: 5,
+      timeLimit: 10,
+      paged: { pageSize: 100 },
     });
 
     console.log(`[auth] Search résultat: ${searchEntries.length} entrée(s)`);
 
     if (searchEntries.length === 0) {
-      return null; // Pas dans le groupe
+      console.error(`[auth] Utilisateur ${username} introuvable dans ${LDAP_USER_BASE}`);
+      return null;
     }
 
     const entry = searchEntries[0];
+
+    // 3. Vérifier l'appartenance au groupe (membership direct uniquement)
+    const rawMemberOf = entry["memberOf"];
+    const memberOfList: string[] = Array.isArray(rawMemberOf)
+      ? rawMemberOf.map(String)
+      : rawMemberOf
+      ? [String(rawMemberOf)]
+      : [];
+
+    console.log(`[auth] Groupes de ${username} (${memberOfList.length}):`, memberOfList.slice(0, 5));
+
+    const isMember = memberOfList.some(
+      (dn) => dn.toLowerCase() === LDAP_GROUP_DN.toLowerCase()
+    );
+
+    if (!isMember) {
+      console.error(`[auth] ${username} n'est pas membre de ${LDAP_GROUP_DN}`);
+      return null;
+    }
+
     const displayName =
       (Array.isArray(entry["displayName"])
         ? entry["displayName"][0]
