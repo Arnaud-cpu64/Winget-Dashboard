@@ -61,6 +61,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-wgrepo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wgrepo}
       NODE_ENV:     production
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      HTTPS_PROXY:  ${HTTPS_PROXY:-}
+      HTTP_PROXY:   ${HTTP_PROXY:-}
+      NO_PROXY:     ${NO_PROXY:-db,api,auth,localhost,127.0.0.1}
     depends_on:
       db:
         condition: service_healthy

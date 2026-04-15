@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { ProxyAgent } from "undici";
 import { SearchWingetQueryParams, SearchWingetResponse } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -6,6 +7,15 @@ const router: IRouter = Router();
 const GITHUB_API = "https://api.github.com";
 const REPO = "microsoft/winget-pkgs";
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+const PROXY_URL =
+  process.env.HTTPS_PROXY ||
+  process.env.https_proxy ||
+  process.env.HTTP_PROXY ||
+  process.env.http_proxy ||
+  null;
+
+const proxyAgent = PROXY_URL ? new ProxyAgent(PROXY_URL) : null;
 
 interface GitHubContent {
   name: string;
@@ -141,10 +151,13 @@ async function fetchGitHubContents(path: string): Promise<GitHubContent[]> {
   const token = process.env.GITHUB_TOKEN;
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const response = await fetch(url, {
+  const fetchOptions: RequestInit & { dispatcher?: ProxyAgent } = {
     headers,
     signal: AbortSignal.timeout(10000),
-  });
+  };
+  if (proxyAgent) fetchOptions.dispatcher = proxyAgent;
+
+  const response = await fetch(url, fetchOptions);
   if (!response.ok) return [];
   const data = (await response.json()) as unknown;
   return Array.isArray(data) ? (data as GitHubContent[]) : [];
