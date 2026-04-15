@@ -17,6 +17,35 @@ const PROXY_URL =
 
 const proxyAgent = PROXY_URL ? new ProxyAgent(PROXY_URL) : null;
 
+// Valide le token GitHub au démarrage — si invalide, on ne l'utilise pas
+// (on tombe sur 60 req/h anonyme plutôt que des erreurs 401 immédiates)
+let validatedToken: string | null = null;
+(async () => {
+  const raw = process.env.GITHUB_TOKEN;
+  if (!raw) return;
+  try {
+    const opts: RequestInit & { dispatcher?: ProxyAgent } = {
+      headers: {
+        Authorization: `Bearer ${raw}`,
+        "User-Agent": "winget-repo-dashboard/1.0",
+        Accept: "application/vnd.github.v3+json",
+      },
+      signal: AbortSignal.timeout(5000),
+    };
+    if (proxyAgent) opts.dispatcher = proxyAgent;
+    const r = await fetch(`${GITHUB_API}/rate_limit`, opts);
+    if (r.ok) {
+      validatedToken = raw;
+      const data = (await r.json()) as { rate?: { limit?: number; remaining?: number } };
+      console.log(`[winget] GitHub token OK — limit: ${data?.rate?.limit ?? "?"}, remaining: ${data?.rate?.remaining ?? "?"}`);
+    } else {
+      console.warn(`[winget] GitHub token invalide (${r.status}) — mode anonyme (60 req/h)`);
+    }
+  } catch (e) {
+    console.warn(`[winget] Impossible de valider le token GitHub — mode anonyme`);
+  }
+})();
+
 interface GitHubContent {
   name: string;
   path: string;
@@ -148,8 +177,7 @@ async function fetchGitHubContents(path: string): Promise<GitHubContent[]> {
     Accept: "application/vnd.github.v3+json",
     "User-Agent": "winget-repo-dashboard/1.0",
   };
-  const token = process.env.GITHUB_TOKEN;
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (validatedToken) headers["Authorization"] = `Bearer ${validatedToken}`;
 
   const fetchOptions: RequestInit & { dispatcher?: ProxyAgent } = {
     headers,
@@ -317,18 +345,34 @@ router.get("/winget/search", async (req, res): Promise<void> => {
     results.sort((a, b) => b._score - a._score);
     const topResults = results.slice(0, limit).map(({ _score: _s, ...rest }) => rest);
 
-    // Récupère les vraies versions en parallèle (max 6s, sinon "latest" en fallback)
-    const TIMEOUT_MS = 6000;
-    const versionsOrTimeout = await Promise.race([
-      Promise.all(topResults.map((pkg) =>
-        getPackageVersion(pkg.packageId).catch(() => pkg.version)
-      )),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), TIMEOUT_MS)),
-    ]);
+    // Résolution de version : séquentielle, limitée aux 5 premiers non-cachés
+    // pour éviter d'épuiser le quota GitHub (60 req/h sans token).
+    const MAX_VERSION_CALLS = 5;
+    const versionsMap = new Map<string, string>();
+    let calls = 0;
 
-    const finalResults = topResults.map((pkg, i) => ({
+    for (const pkg of topResults) {
+      const cached = versionCache.get(pkg.packageId);
+      if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+        versionsMap.set(pkg.packageId, cached.data);
+        continue;
+      }
+      if (calls >= MAX_VERSION_CALLS) continue;
+      calls++;
+      try {
+        const v = await Promise.race([
+          getPackageVersion(pkg.packageId),
+          new Promise<string>((resolve) => setTimeout(() => resolve("latest"), 3000)),
+        ]);
+        versionsMap.set(pkg.packageId, v);
+      } catch {
+        versionsMap.set(pkg.packageId, "latest");
+      }
+    }
+
+    const finalResults = topResults.map((pkg) => ({
       ...pkg,
-      version: versionsOrTimeout ? (versionsOrTimeout[i] ?? pkg.version) : pkg.version,
+      version: versionsMap.get(pkg.packageId) ?? pkg.version,
     }));
 
     res.json(SearchWingetResponse.parse(finalResults));
