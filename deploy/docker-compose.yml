@@ -21,7 +21,7 @@ services:
   # PostgreSQL
   # ----------------------------------------------------------
   db:
-    image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo/postgres:16-alpine
+    image: ${REGISTRY:-ghcr.io/arnaud-edu-cpu64}/wg-repo-postgres:16-alpine
     environment:
       POSTGRES_DB:       ${POSTGRES_DB:-wgrepo}
       POSTGRES_USER:     ${POSTGRES_USER:-wgrepo}
