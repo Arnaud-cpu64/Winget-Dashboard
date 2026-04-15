@@ -10,6 +10,7 @@ import {
   GetPackageStatsResponse,
   ListPackagesResponse,
 } from "@workspace/api-zod";
+import { getPackageVersion } from "./winget.js";
 
 const router: IRouter = Router();
 
@@ -61,9 +62,23 @@ router.post("/packages", async (req, res): Promise<void> => {
     return;
   }
 
+  // Si la version est "latest", on résout la vraie version depuis le dépôt winget
+  let resolvedVersion = parsed.data.version;
+  if (resolvedVersion === "latest") {
+    try {
+      const real = await Promise.race([
+        getPackageVersion(parsed.data.packageId),
+        new Promise<string>((resolve) => setTimeout(() => resolve("latest"), 8000)),
+      ]);
+      resolvedVersion = real;
+    } catch {
+      resolvedVersion = "latest";
+    }
+  }
+
   const [pkg] = await db
     .insert(packagesTable)
-    .values(parsed.data)
+    .values({ ...parsed.data, version: resolvedVersion })
     .returning();
 
   res.status(201).json(GetPackageResponse.parse(pkg));

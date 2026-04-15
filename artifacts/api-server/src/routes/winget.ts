@@ -34,7 +34,7 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-async function getPackageVersion(packageId: string): Promise<string> {
+export async function getPackageVersion(packageId: string): Promise<string> {
   const cached = versionCache.get(packageId);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
 
