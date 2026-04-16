@@ -56,11 +56,17 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { format, formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
+import { PackageDetailModal } from "@/components/package-detail-modal";
+import type { ListPackagesResponseItem } from "@workspace/api-zod";
+import { z } from "zod/v4";
+
+type LocalPackage = z.infer<typeof ListPackagesResponseItem>;
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 export default function Dashboard() {
   const [search, setSearch] = useState("");
+  const [selectedPkg, setSelectedPkg] = useState<LocalPackage | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -172,6 +178,7 @@ export default function Dashboard() {
   };
 
   return (
+    <>
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-mono font-bold tracking-tight text-foreground flex items-center gap-3">
@@ -386,7 +393,15 @@ export default function Dashboard() {
                     const isUpdating = updateVersion.isPending && (updateVersion.variables as { id: number })?.id === pkg.id;
 
                     return (
-                      <TableRow key={pkg.id} className="border-border hover:bg-secondary/20 transition-colors">
+                      <TableRow
+                        key={pkg.id}
+                        className="border-border hover:bg-secondary/20 transition-colors cursor-pointer"
+                        onClick={(e) => {
+                          const target = e.target as HTMLElement;
+                          if (target.closest("[data-no-modal]")) return;
+                          setSelectedPkg(pkg);
+                        }}
+                      >
                         <TableCell>
                           <div className="font-medium text-foreground">{pkg.name}</div>
                           <div className="text-xs text-muted-foreground font-mono">{pkg.packageId}</div>
@@ -429,8 +444,8 @@ export default function Dashboard() {
                         <TableCell className="hidden md:table-cell text-sm text-muted-foreground font-mono">
                           {format(new Date(pkg.addedAt), "d MMM yyyy", { locale: fr })}
                         </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
+                        <TableCell className="text-right" data-no-modal>
+                          <div className="flex justify-end gap-1" data-no-modal>
                             {/* Per-row update button */}
                             {outdated && latest && (
                               <TooltipProvider>
@@ -516,5 +531,22 @@ export default function Dashboard() {
         </CardContent>
       </Card>
     </div>
+
+    <PackageDetailModal
+      pkg={selectedPkg}
+      open={selectedPkg !== null}
+      onClose={() => setSelectedPkg(null)}
+      latestVersion={selectedPkg ? (updateData?.updates?.[selectedPkg.packageId] ?? null) : null}
+      onUpdateVersion={(id, newVersion) => {
+        if (!selectedPkg) return;
+        handleUpdateOne(id, selectedPkg.name, newVersion);
+        setSelectedPkg(null);
+      }}
+      isUpdating={
+        updateVersion.isPending &&
+        (updateVersion.variables as { id: number })?.id === selectedPkg?.id
+      }
+    />
+    </>
   );
 }

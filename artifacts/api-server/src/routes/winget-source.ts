@@ -26,18 +26,22 @@ function buildInstallerManifest(pkg: Package, ver?: PackageVersion) {
   const arch = ver?.architecture ?? "x64";
   const type = ver?.installerType ?? "exe";
 
+  const installer: Record<string, unknown> = {
+    Architecture: arch,
+    InstallerType: type,
+    Scope: "machine",
+    InstallerUrl: url,
+    InstallerSha256: sha256,
+  };
+
+  if (pkg.productCode) {
+    installer.ProductCode = pkg.productCode;
+  }
+
   return {
     PackageIdentifier: pkg.packageId,
     PackageVersion: version,
-    Installers: [
-      {
-        Architecture: arch,
-        InstallerType: type,
-        Scope: "machine",
-        InstallerUrl: url,
-        InstallerSha256: sha256,
-      },
-    ],
+    Installers: [installer],
     ManifestType: "installer",
     ManifestVersion: "1.4.0",
   };

@@ -13,6 +13,7 @@ export const packagesTable = pgTable("packages", {
   homepage: text("homepage"),
   installerUrl: text("installer_url"),
   installerSha256: text("installer_sha256"),
+  productCode: text("product_code"),
   addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

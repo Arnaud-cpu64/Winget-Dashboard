@@ -241,6 +241,13 @@ components:
           type: ["string", "null"]
         homepage:
           type: ["string", "null"]
+        installerUrl:
+          type: ["string", "null"]
+        installerSha256:
+          type: ["string", "null"]
+        productCode:
+          type: ["string", "null"]
+          description: "MSI/GUID product code — used by winget for upgrade/uninstall detection"
         addedAt:
           type: string
           format: date-time
@@ -269,6 +276,13 @@ components:
           type: ["string", "null"]
         homepage:
           type: ["string", "null"]
+        installerUrl:
+          type: ["string", "null"]
+        installerSha256:
+          type: ["string", "null"]
+        productCode:
+          type: ["string", "null"]
+          description: "MSI/GUID product code — used by winget for upgrade/uninstall detection"
       required:
         - packageId
         - name
