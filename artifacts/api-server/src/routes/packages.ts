@@ -81,6 +81,15 @@ router.post("/packages", async (req, res): Promise<void> => {
     .values({ ...parsed.data, version: resolvedVersion })
     .returning();
 
+  // Create the matching entry in package_versions so the modal "versions hébergées" is populated
+  await db.insert(packageVersionsTable).values({
+    packageId: pkg.id,
+    version: resolvedVersion,
+    installerUrl: parsed.data.installerUrl ?? null,
+    installerSha256: parsed.data.installerSha256 ?? null,
+    productCode: parsed.data.productCode ?? null,
+  }).onConflictDoNothing();
+
   res.status(201).json(GetPackageResponse.parse(pkg));
 });
 
