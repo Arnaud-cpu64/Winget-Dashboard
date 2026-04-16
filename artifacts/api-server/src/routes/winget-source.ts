@@ -1,46 +1,41 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, or, and } from "drizzle-orm";
+import { eq, ilike, or, and, sql } from "drizzle-orm";
 import yaml from "js-yaml";
 import { db, packagesTable, packageVersionsTable } from "@workspace/db";
 import type { Package, PackageVersion } from "@workspace/db";
 
 const router: IRouter = Router();
 
-const API_VERSION = "1.7.0";
+/**
+ * All versions of the REST source contract that this server supports.
+ * The winget client picks the highest version from this list that it also supports.
+ * Listing multiple versions ensures compatibility with older and newer winget clients.
+ */
+const SUPPORTED_VERSIONS = ["1.1.0", "1.4.0", "1.7.0"];
 
 const ZERO_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000";
 
-function buildPackageIdentifier(pkg: Package): string {
-  return pkg.packageId;
-}
+// ---------------------------------------------------------------------------
+// Manifest builders
+// ---------------------------------------------------------------------------
 
-function buildInstallerManifestFromVersion(pkg: Package, ver: PackageVersion) {
+function buildInstallerManifest(pkg: Package, ver?: PackageVersion) {
+  const version = ver?.version ?? pkg.version;
+  const url = ver?.installerUrl ?? pkg.installerUrl ?? pkg.homepage ?? "";
+  const sha256 = ver?.installerSha256 ?? pkg.installerSha256 ?? ZERO_SHA256;
+  const arch = ver?.architecture ?? "x64";
+  const type = ver?.installerType ?? "exe";
+
   return {
     PackageIdentifier: pkg.packageId,
-    PackageVersion: ver.version,
+    PackageVersion: version,
     Installers: [
       {
-        Architecture: ver.architecture ?? "x64",
-        InstallerType: ver.installerType ?? "exe",
-        InstallerUrl: ver.installerUrl ?? pkg.installerUrl ?? pkg.homepage ?? "",
-        InstallerSha256: ver.installerSha256 ?? pkg.installerSha256 ?? ZERO_SHA256,
-      },
-    ],
-    ManifestType: "installer",
-    ManifestVersion: "1.4.0",
-  };
-}
-
-function buildInstallerManifest(pkg: Package) {
-  return {
-    PackageIdentifier: pkg.packageId,
-    PackageVersion: pkg.version,
-    Installers: [
-      {
-        Architecture: "x64",
-        InstallerType: "exe",
-        InstallerUrl: pkg.installerUrl ?? pkg.homepage ?? "",
-        InstallerSha256: pkg.installerSha256 ?? ZERO_SHA256,
+        Architecture: arch,
+        InstallerType: type,
+        Scope: "machine",
+        InstallerUrl: url,
+        InstallerSha256: sha256,
       },
     ],
     ManifestType: "installer",
@@ -86,60 +81,112 @@ function buildVersionEntry(version: string, pkg: Package) {
   return {
     PackageVersion: version,
     DefaultLocale: buildDefaultLocaleShort(pkg),
-    Channel: null,
+    Channel: "",
   };
 }
 
-/**
- * Resolves all available versions for a package.
- * Returns versions from the package_versions table if any exist,
- * otherwise falls back to the version field on the package row itself.
- */
+function buildManifests(pkg: Package, version: string, versionRow: PackageVersion | null) {
+  const versionManifest = buildVersionManifest(pkg, version);
+  const defaultLocaleManifest = buildDefaultLocaleManifest(pkg, version);
+  const installerManifest = buildInstallerManifest(pkg, versionRow ?? undefined);
+
+  return {
+    VersionManifest: yaml.dump(versionManifest, { lineWidth: -1 }),
+    DefaultLocaleManifest: yaml.dump(defaultLocaleManifest, { lineWidth: -1 }),
+    LocaleManifests: [],
+    InstallerManifest: yaml.dump(installerManifest, { lineWidth: -1 }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// DB helpers
+// ---------------------------------------------------------------------------
+
 async function resolveVersions(pkg: Package): Promise<string[]> {
   const rows = await db
     .select()
     .from(packageVersionsTable)
     .where(eq(packageVersionsTable.packageId, pkg.id));
 
-  if (rows.length > 0) {
-    return rows.map((r) => r.version);
-  }
-  return [pkg.version];
+  return rows.length > 0 ? rows.map((r) => r.version) : [pkg.version];
 }
 
-/**
- * Resolves a specific version record, or falls back to the package row.
- */
-async function resolveVersion(
+async function resolveVersionRow(
   pkg: Package,
   requestedVersion: string,
-): Promise<{ found: false } | { found: true; versionRow: PackageVersion | null; version: string }> {
+): Promise<{ found: false } | { found: true; versionRow: PackageVersion | null }> {
   const rows = await db
     .select()
     .from(packageVersionsTable)
     .where(and(eq(packageVersionsTable.packageId, pkg.id), eq(packageVersionsTable.version, requestedVersion)));
 
-  if (rows.length > 0) {
-    return { found: true, versionRow: rows[0] ?? null, version: requestedVersion };
-  }
-
-  if (pkg.version === requestedVersion) {
-    return { found: true, versionRow: null, version: requestedVersion };
-  }
-
+  if (rows.length > 0) return { found: true, versionRow: rows[0] ?? null };
+  if (pkg.version === requestedVersion) return { found: true, versionRow: null };
   return { found: false };
 }
 
+/** Case-insensitive exact lookup of a package by its packageId. */
+async function findPackage(packageIdentifier: string): Promise<Package | undefined> {
+  const rows = await db
+    .select()
+    .from(packagesTable)
+    .where(sql`lower(${packagesTable.packageId}) = lower(${packageIdentifier})`);
+  return rows[0];
+}
+
+// ---------------------------------------------------------------------------
+// Search helpers — respect MatchType and Filters vs Inclusions semantics
+// ---------------------------------------------------------------------------
+
+type MatchFilter = {
+  PackageMatchField: string;
+  RequestMatch: { KeyWord: string; MatchType: string };
+};
+
+function buildFilterCondition(filter: MatchFilter) {
+  const kw = filter.RequestMatch?.KeyWord ?? "";
+  const matchType = filter.RequestMatch?.MatchType ?? "Substring";
+  const field = filter.PackageMatchField;
+
+  const exact = (col: Parameters<typeof ilike>[0]) =>
+    sql`lower(${col}) = lower(${kw})`;
+  const partial = (col: Parameters<typeof ilike>[0]) =>
+    ilike(col, `%${kw}%`);
+  const match = matchType === "Exact" || matchType === "CaseInsensitive" ? exact : partial;
+
+  switch (field) {
+    case "PackageIdentifier":
+      return match(packagesTable.packageId);
+    case "PackageName":
+      return match(packagesTable.name);
+    case "Publisher":
+      return match(packagesTable.publisher);
+    case "Keyword":
+    case "Tag":
+    case "Command":
+    case "Moniker":
+    default:
+      return or(
+        partial(packagesTable.name),
+        partial(packagesTable.publisher),
+        partial(packagesTable.packageId),
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
 /**
  * GET /winget/information
- * Required by winget client during source initialization.
- * https://github.com/microsoft/winget-cli-restsource
+ * Source negotiation — called first by every winget command.
  */
 router.get("/information", (_req, res) => {
   res.json({
     Data: {
       SourceIdentifier: "winget-local-repo",
-      ServerSupportedVersions: [API_VERSION],
+      ServerSupportedVersions: SUPPORTED_VERSIONS,
       Authentication: {
         AuthenticationType: "none",
       },
@@ -153,72 +200,73 @@ router.get("/information", (_req, res) => {
 
 /**
  * POST /winget/manifestSearch
- * Winget REST source contract — search endpoint.
- * Called by `winget search`, `winget install`, `winget upgrade`.
+ * Called by: winget search, winget show, winget install, winget upgrade, winget list
+ *
+ * Semantics (from the REST source contract):
+ *   - Query       → broad OR search across name/publisher/id
+ *   - Inclusions  → OR between items, combined as OR with Query
+ *   - Filters     → AND between items, restricts the above results
  */
 router.post("/manifestSearch", async (req, res): Promise<void> => {
   try {
     const body = req.body as {
       Query?: { KeyWord?: string; MatchType?: string };
-      Filters?: Array<{ PackageMatchField: string; RequestMatch: { KeyWord: string; MatchType: string } }>;
-      Inclusions?: Array<{ PackageMatchField: string; RequestMatch: { KeyWord: string; MatchType: string } }>;
+      Filters?: MatchFilter[];
+      Inclusions?: MatchFilter[];
       MaximumResults?: number;
       FetchAllManifests?: boolean;
     };
 
-    const maxResults = body?.MaximumResults ?? 30;
+    req.log.debug({ body }, "[winget] manifestSearch");
+
+    const maxResults = body?.MaximumResults ?? 50;
+
+    // Build the broad OR clause from Query + Inclusions
+    const orClauses: ReturnType<typeof buildFilterCondition>[] = [];
+
     const keyword = body?.Query?.KeyWord ?? "";
-
-    const conditions = [];
-
     if (keyword) {
-      conditions.push(
+      orClauses.push(
         or(
           ilike(packagesTable.name, `%${keyword}%`),
           ilike(packagesTable.publisher, `%${keyword}%`),
           ilike(packagesTable.packageId, `%${keyword}%`),
-        ),
+        ) as ReturnType<typeof buildFilterCondition>,
       );
     }
 
-    const filters = [...(body?.Filters ?? []), ...(body?.Inclusions ?? [])];
-    for (const filter of filters) {
-      const kw = filter.RequestMatch?.KeyWord ?? "";
-      if (!kw) continue;
-      const field = filter.PackageMatchField;
-      if (field === "PackageName") {
-        conditions.push(ilike(packagesTable.name, `%${kw}%`));
-      } else if (field === "Publisher") {
-        conditions.push(ilike(packagesTable.publisher, `%${kw}%`));
-      } else if (field === "PackageIdentifier") {
-        conditions.push(ilike(packagesTable.packageId, `%${kw}%`));
-      } else if (field === "Keyword" || field === "Tag" || field === "Command" || field === "Moniker") {
-        conditions.push(
-          or(
-            ilike(packagesTable.name, `%${kw}%`),
-            ilike(packagesTable.publisher, `%${kw}%`),
-            ilike(packagesTable.packageId, `%${kw}%`),
-          ),
-        );
-      }
+    for (const inc of body?.Inclusions ?? []) {
+      const cond = buildFilterCondition(inc);
+      if (cond) orClauses.push(cond);
     }
 
-    let packages: Package[];
-    if (conditions.length > 0) {
-      packages = await db
-        .select()
-        .from(packagesTable)
-        .where(or(...conditions))
-        .limit(maxResults);
-    } else {
-      packages = await db.select().from(packagesTable).limit(maxResults);
+    // Build the AND clauses from Filters
+    const andClauses: ReturnType<typeof buildFilterCondition>[] = [];
+    for (const f of body?.Filters ?? []) {
+      const cond = buildFilterCondition(f);
+      if (cond) andClauses.push(cond);
     }
+
+    // Combine: (OR clauses) AND (filter clauses)
+    const whereClause = (() => {
+      const broad = orClauses.length > 0 ? or(...orClauses) : undefined;
+      const restrict = andClauses.length > 0 ? and(...andClauses) : undefined;
+
+      if (broad && restrict) return and(broad, restrict);
+      if (broad) return broad;
+      if (restrict) return restrict;
+      return undefined; // no filter → return all
+    })();
+
+    const packages = await (whereClause
+      ? db.select().from(packagesTable).where(whereClause).limit(maxResults)
+      : db.select().from(packagesTable).limit(maxResults));
 
     const data = await Promise.all(
       packages.map(async (pkg) => {
         const versions = await resolveVersions(pkg);
         return {
-          PackageIdentifier: buildPackageIdentifier(pkg),
+          PackageIdentifier: pkg.packageId,
           PackageName: pkg.name,
           Publisher: pkg.publisher,
           Versions: versions.map((v) => buildVersionEntry(v, pkg)),
@@ -232,117 +280,93 @@ router.post("/manifestSearch", async (req, res): Promise<void> => {
       UnsupportedPackageMatchFields: [],
     });
   } catch (err) {
-    req.log.error({ err }, "Error searching winget packages");
+    req.log.error({ err }, "[winget] manifestSearch error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
 /**
  * GET /winget/packageManifests/:packageIdentifier
- * Returns all versions + manifests for a specific package.
- * Called by `winget install` and `winget show`.
+ * Called by: winget show, winget install, winget upgrade, winget download
+ * Returns all versions with full YAML manifests.
  */
 router.get("/packageManifests/:packageIdentifier", async (req, res): Promise<void> => {
   try {
     const { packageIdentifier } = req.params;
-    const [pkg] = await db
-      .select()
-      .from(packagesTable)
-      .where(eq(packagesTable.packageId, packageIdentifier));
+    req.log.debug({ packageIdentifier }, "[winget] packageManifests");
 
+    const pkg = await findPackage(packageIdentifier);
     if (!pkg) {
-      res.status(404).json({ Data: null });
+      // winget expects 204 No Content when a package is not found
+      res.status(204).end();
       return;
     }
 
     const versions = await resolveVersions(pkg);
 
-    const versionData = await Promise.all(
-      versions.map(async (version) => {
-        const resolved = await resolveVersion(pkg, version);
-        if (!resolved.found) return null;
-
-        const versionManifest = buildVersionManifest(pkg, version);
-        const defaultLocaleManifest = buildDefaultLocaleManifest(pkg, version);
-        const installerManifest = resolved.versionRow
-          ? buildInstallerManifestFromVersion(pkg, resolved.versionRow)
-          : buildInstallerManifest(pkg);
-
-        return {
-          PackageVersion: version,
-          DefaultLocale: buildDefaultLocaleShort(pkg),
-          Channel: null,
-          Manifests: {
-            VersionManifest: yaml.dump(versionManifest, { lineWidth: -1 }),
-            DefaultLocaleManifest: yaml.dump(defaultLocaleManifest, { lineWidth: -1 }),
-            LocaleManifests: [],
-            InstallerManifest: yaml.dump(installerManifest, { lineWidth: -1 }),
-          },
-        };
-      }),
-    );
+    const versionData = (
+      await Promise.all(
+        versions.map(async (version) => {
+          const resolved = await resolveVersionRow(pkg, version);
+          if (!resolved.found) return null;
+          return {
+            PackageVersion: version,
+            DefaultLocale: buildDefaultLocaleShort(pkg),
+            Channel: "",
+            Manifests: buildManifests(pkg, version, resolved.versionRow),
+          };
+        }),
+      )
+    ).filter(Boolean);
 
     res.json({
       Data: {
-        PackageIdentifier: buildPackageIdentifier(pkg),
-        Versions: versionData.filter(Boolean),
+        PackageIdentifier: pkg.packageId,
+        Versions: versionData,
       },
     });
   } catch (err) {
-    req.log.error({ err }, "Error fetching winget package manifests");
+    req.log.error({ err }, "[winget] packageManifests error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
 /**
  * GET /winget/packageManifests/:packageIdentifier/:packageVersionId
- * Returns manifests for a specific version of a package.
+ * Called by: winget install <id> --version <v>, winget show <id> --version <v>
  */
 router.get("/packageManifests/:packageIdentifier/:packageVersionId", async (req, res): Promise<void> => {
   try {
     const { packageIdentifier, packageVersionId } = req.params;
-    const [pkg] = await db
-      .select()
-      .from(packagesTable)
-      .where(eq(packagesTable.packageId, packageIdentifier));
+    req.log.debug({ packageIdentifier, packageVersionId }, "[winget] packageManifests/version");
 
+    const pkg = await findPackage(packageIdentifier);
     if (!pkg) {
-      res.status(404).json({ Data: null });
+      res.status(204).end();
       return;
     }
 
-    const resolved = await resolveVersion(pkg, packageVersionId);
+    const resolved = await resolveVersionRow(pkg, packageVersionId);
     if (!resolved.found) {
-      res.status(404).json({ Data: null });
+      res.status(204).end();
       return;
     }
-
-    const versionManifest = buildVersionManifest(pkg, resolved.version);
-    const defaultLocaleManifest = buildDefaultLocaleManifest(pkg, resolved.version);
-    const installerManifest = resolved.versionRow
-      ? buildInstallerManifestFromVersion(pkg, resolved.versionRow)
-      : buildInstallerManifest(pkg);
 
     res.json({
       Data: {
-        PackageIdentifier: buildPackageIdentifier(pkg),
+        PackageIdentifier: pkg.packageId,
         Versions: [
           {
-            PackageVersion: resolved.version,
+            PackageVersion: resolved.versionRow?.version ?? pkg.version,
             DefaultLocale: buildDefaultLocaleShort(pkg),
-            Channel: null,
-            Manifests: {
-              VersionManifest: yaml.dump(versionManifest, { lineWidth: -1 }),
-              DefaultLocaleManifest: yaml.dump(defaultLocaleManifest, { lineWidth: -1 }),
-              LocaleManifests: [],
-              InstallerManifest: yaml.dump(installerManifest, { lineWidth: -1 }),
-            },
+            Channel: "",
+            Manifests: buildManifests(pkg, resolved.versionRow?.version ?? pkg.version, resolved.versionRow),
           },
         ],
       },
     });
   } catch (err) {
-    req.log.error({ err }, "Error fetching winget package version manifests");
+    req.log.error({ err }, "[winget] packageManifests/version error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
