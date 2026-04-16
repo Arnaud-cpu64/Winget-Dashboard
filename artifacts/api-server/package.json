@@ -19,7 +19,7 @@
     "js-yaml": "^4.1.1",
     "pino": "^9",
     "pino-http": "^10",
-    "undici": "^6.0.0"
+    "undici": "^5.28.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
