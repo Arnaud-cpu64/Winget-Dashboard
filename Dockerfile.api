@@ -37,7 +37,7 @@ COPY --from=builder /workspace/artifacts/api-server/dist ./dist
 
 # undici est externalisé du bundle esbuild (support proxy HTTP)
 # Il doit être présent dans node_modules à l'exécution
-RUN npm install undici@8 --no-save --silent
+RUN npm install undici@6 --no-save --silent
 
 ENV NODE_ENV=production
 EXPOSE 3000
