@@ -9,10 +9,10 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 
 - **Tableau de bord** — vue d'ensemble du catalogue, détection automatique des mises à jour disponibles
 - **Recherche & Ajout** — recherche dans le catalogue, ajout de nouveaux paquets
-- **Source Winget native** — compatible avec le protocole REST Winget v1.1 (`winget source add`)
+- **Source Winget native** — compatible avec le protocole REST Winget v1.7 (`winget source add`)
 - **Intégration SCCM/MECM** — génération de scripts PowerShell de détection et d'installation
 - **Export** — catalogue exportable en CSV, JSON ou script PowerShell groupé
-- **Authentification LDAP/AD** — accès réservé aux membres du groupe `GAP-Winget` du domaine `ge-pedago`
+- **Authentification LDAP/AD** — accès réservé aux membres d'un groupe AD configuré
 - **Déploiement Docker** — 4 images légères, orchestrées via Docker Compose
 
 ---
@@ -37,14 +37,14 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 ┌────────────────────▼────────────────────────────┐
 │  Auth Proxy (Node.js)                            │
 │  Formulaire de login · validation LDAP/AD        │
-│  Vérification groupe GAP-Winget · session cookie │
+│  Vérification groupe AD · session cookie         │
 └─────────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────┐
 │  API Express (Node.js)                           │
 │  /api/packages        CRUD catalogue             │
 │  /api/packages/export Export CSV/JSON/PS1        │
-│  /winget/*            Protocole REST Winget v1.1 │
+│  /winget/*            Protocole REST Winget v1.7 │
 └────────────────────┬────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────┐
@@ -57,30 +57,27 @@ Permet de gérer un catalogue de logiciels internes et de les déployer via **Wi
 
 ## Authentification LDAP/AD
 
-L'accès au dashboard est protégé par le service `auth-proxy` qui s'authentifie sur le domaine `ge-pedago.etat-ge.ch`.
+L'accès au dashboard est protégé par le service `auth-proxy` qui s'authentifie sur votre domaine Active Directory.
 
 ### Variables d'environnement requises
 
 | Variable | Exemple | Description |
 |----------|---------|-------------|
 | `SESSION_SECRET` | `openssl rand -hex 32` | Secret de chiffrement des sessions |
-| `LDAP_URLS` | `ldap://ECUREUIL.ge-pedago.etat-ge.ch,...` | DCs séparés par des virgules |
-| `LDAP_BASE_DN` | `DC=ge-pedago,DC=etat-ge,DC=ch` | Base DN du domaine |
-| `LDAP_USER_BASE` | `OU=Utilisateurs,OU=...,DC=ge-pedago,...` | OU contenant les utilisateurs |
-| `LDAP_GROUP_DN` | `CN=GAP-Winget,OU=Groupes,DC=ge-pedago,...` | DN complet du groupe d'accès |
-| `LDAP_DOMAIN` | `ge-pedago` | Préfixe UPN (utilisateur@ge-pedago) |
+| `LDAP_URLS` | `ldaps://DC01.exemple.com,ldaps://DC02.exemple.com` | DCs séparés par des virgules |
+| `LDAP_BASE_DN` | `DC=exemple,DC=com` | Base DN du domaine |
+| `LDAP_USER_BASE` | `OU=Utilisateurs,DC=exemple,DC=com` | OU contenant les utilisateurs |
+| `LDAP_GROUP_DN` | `CN=GRP-Winget,OU=Groupes,DC=exemple,DC=com` | DN complet du groupe d'accès |
+| `LDAP_DOMAIN` | `exemple` | Préfixe UPN (utilisateur@exemple.com) |
 
 > **Important :** `LDAP_USER_BASE` doit correspondre à l'OU réelle de votre AD. Vérifiez-la avec un outil LDAP (ex: Apache Directory Studio) avant le premier déploiement.
 
-### Contrôleurs de domaine disponibles
+### Exemple — contrôleurs de domaine
 
 ```
-ECUREUIL.ge-pedago.etat-ge.ch
-ELEPHANT.ge-pedago.etat-ge.ch
-ENARGIA.ge-pedago.etat-ge.ch
-ERISTALE.ge-pedago.etat-ge.ch
-ESPADON.ge-pedago.etat-ge.ch
-EUMENES.ge-pedago.etat-ge.ch
+DC01.exemple.com
+DC02.exemple.com
+DC03.exemple.com
 ```
 
 ---
@@ -96,7 +93,7 @@ EUMENES.ge-pedago.etat-ge.ch
                        git push                           │
                            │                              ▼
                       [GitLab interne]        [GHCR — ghcr.io]
-                      validation TS            ghcr.io/arnaud-edu-cpu64/
+                      validation TS            ghcr.io/<utilisateur>/
                                               wg-repo-api
                                               wg-repo-dashboard
                                               wg-repo-migrator
@@ -121,16 +118,16 @@ Les serveurs RHEL9 tirent les images depuis GHCR (accès réseau à ouvrir vers 
 
 ```bash
 # Cloner depuis GitHub (si pas encore fait)
-git clone git@github.com:arnaud-edu-cpu64/Winget-Dashboard.git
+git clone git@github.com:<utilisateur>/Winget-Dashboard.git
 cd Winget-Dashboard
 
 # Ajouter GitLab comme second remote
-git remote add gitlab git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git
+git remote add gitlab git@gitlab.exemple.com:<groupe>/SEMWinget.git
 
 # Vérifier les deux remotes
 git remote -v
-# origin  git@github.com:arnaud-edu-cpu64/Winget-Dashboard.git  (fetch/push)
-# gitlab  git@git.devops.etat-ge.ch:...                         (fetch/push)
+# origin  git@github.com:<utilisateur>/Winget-Dashboard.git  (fetch/push)
+# gitlab  git@gitlab.exemple.com:<groupe>/SEMWinget.git      (fetch/push)
 ```
 
 ### Workflow de publication d'une nouvelle version
@@ -149,10 +146,10 @@ git push origin v1.1.0
 
 GitHub Actions construit les 4 images et les publie sur **GitHub Container Registry (GHCR)** :
 ```
-ghcr.io/arnaud-edu-cpu64/wg-repo-api:v1.1.0
-ghcr.io/arnaud-edu-cpu64/wg-repo-dashboard:v1.1.0
-ghcr.io/arnaud-edu-cpu64/wg-repo-migrator:v1.1.0
-ghcr.io/arnaud-edu-cpu64/wg-repo-auth:v1.1.0
+ghcr.io/<utilisateur>/wg-repo-api:v1.1.0
+ghcr.io/<utilisateur>/wg-repo-dashboard:v1.1.0
+ghcr.io/<utilisateur>/wg-repo-migrator:v1.1.0
+ghcr.io/<utilisateur>/wg-repo-auth:v1.1.0
 ```
 
 ### Rendre les packages GHCR accessibles aux serveurs
@@ -165,7 +162,7 @@ Sur github.com → **Packages** → chaque image → **Package settings** → Ch
 **Option B — Authentification sur chaque serveur** :
 ```bash
 # Créer un token GitHub avec le scope read:packages
-docker login ghcr.io -u arnaud-edu-cpu64 -p <github-token>
+docker login ghcr.io -u <utilisateur-github> -p <github-token>
 ```
 
 ---
@@ -197,7 +194,7 @@ sudo chmod 600 /opt/wg-repo/certs/key.pem
 ### 2. Cloner le dépôt sur le serveur
 
 ```bash
-git clone git@git.devops.etat-ge.ch:DEVELOPPEUR-PEDAGO/windows/SEMWinget.git /opt/wg-repo
+git clone git@gitlab.exemple.com:<groupe>/SEMWinget.git /opt/wg-repo
 ```
 
 ### 3. Configuration
@@ -213,8 +210,11 @@ Remplir `.env.prod` (variables obligatoires) :
 POSTGRES_PASSWORD=mot-de-passe-fort
 CERTS_DIR=/opt/wg-repo/certs
 SESSION_SECRET=<résultat de : openssl rand -hex 32>
-LDAP_USER_BASE=OU=Utilisateurs,OU=<votre-OU>,DC=ge-pedago,DC=etat-ge,DC=ch
-LDAP_GROUP_DN=CN=GAP-Winget,OU=<votre-OU-groupes>,DC=ge-pedago,DC=etat-ge,DC=ch
+LDAP_URLS=ldaps://DC01.exemple.com,ldaps://DC02.exemple.com
+LDAP_BASE_DN=DC=exemple,DC=com
+LDAP_USER_BASE=OU=Utilisateurs,DC=exemple,DC=com
+LDAP_GROUP_DN=CN=GRP-Winget,OU=Groupes,DC=exemple,DC=com
+LDAP_DOMAIN=exemple
 ```
 
 ### 4. Démarrage
@@ -281,18 +281,18 @@ newgrp docker
 
 ## Intégration Winget
 
-Ce serveur implémente le protocole **Microsoft.Rest** (Winget REST API v1.1).
+Ce serveur implémente le protocole **Microsoft.Rest** (Winget REST API v1.7).
 
 ### Enregistrer la source sur un poste Windows
 
 **Production :**
 ```powershell
-winget source add --name "eduwinget" --arg https://eduwinget.ceti.etat-ge.ch/winget --type "Microsoft.Rest"
+winget source add --name "monrepo" --arg https://winget.exemple.com/winget --type "Microsoft.Rest"
 ```
 
 **Recette :**
 ```powershell
-winget source add --name "eduwinget-rec" --arg https://eduwinget.rec.etat-ge.ch/winget --type "Microsoft.Rest"
+winget source add --name "monrepo-rec" --arg https://winget-rec.exemple.com/winget --type "Microsoft.Rest"
 ```
 
 Vérification :
@@ -303,8 +303,8 @@ winget source list
 ### Installer un paquet depuis la source
 
 ```powershell
-winget install --id Mozilla.Firefox --source eduwinget
-winget upgrade --source eduwinget --all
+winget install --id Mozilla.Firefox --source monrepo
+winget upgrade --source monrepo --all
 ```
 
 ### Endpoints Winget exposés (sans authentification)
@@ -312,12 +312,9 @@ winget upgrade --source eduwinget --all
 | Méthode | Chemin | Description |
 |---------|--------|-------------|
 | `GET` | `/winget/information` | Informations API (version, contrats) |
-| `POST` | `/winget/packages/search` | Recherche (Query / Filters / Inclusions) |
-| `GET` | `/winget/packages` | Liste paginée avec filtres |
-| `GET` | `/winget/packages/:id` | Détail d'un paquet |
-| `GET` | `/winget/packages/:id/versions` | Toutes les versions |
-| `GET` | `/winget/packages/:id/versions/:v` | Version spécifique |
-| `GET` | `/winget/packages/:id/versions/:v/manifests` | Manifestes YAML |
+| `POST` | `/winget/manifestSearch` | Recherche (Query / Filters / Inclusions) |
+| `GET` | `/winget/packageManifests/:id` | Manifestes de toutes les versions |
+| `GET` | `/winget/packageManifests/:id/:version` | Manifestes d'une version spécifique |
 
 ---
 
@@ -330,23 +327,23 @@ Accessible dans le tableau de bord via **Intégration SCCM**.
 **Script de détection** :
 ```powershell
 $PackageId = "Mozilla.Firefox"
-$RepoName  = "eduwinget"
+$RepoName  = "monrepo"
 $output = winget list --id $PackageId --source $RepoName --accept-source-agreements 2>$null
 if ($output -match [regex]::Escape($PackageId)) { exit 0 } else { exit 1 }
 ```
 
 **Script d'installation** :
 ```powershell
-winget install --id Mozilla.Firefox --source eduwinget --silent --accept-package-agreements --accept-source-agreements
+winget install --id Mozilla.Firefox --source monrepo --silent --accept-package-agreements --accept-source-agreements
 ```
 
 ### Export du catalogue
 
 | Format | URL | Description |
 |--------|-----|-------------|
-| JSON | `GET /api/packages/export?format=json&repo=eduwinget` | Catalogue complet |
-| CSV | `GET /api/packages/export?format=csv&repo=eduwinget` | Import Excel / SCCM |
-| PowerShell | `GET /api/packages/export?format=powershell&repo=eduwinget` | Script groupé |
+| JSON | `GET /api/packages/export?format=json&repo=monrepo` | Catalogue complet |
+| CSV | `GET /api/packages/export?format=csv&repo=monrepo` | Import Excel / SCCM |
+| PowerShell | `GET /api/packages/export?format=powershell&repo=monrepo` | Script groupé |
 
 ---
 
