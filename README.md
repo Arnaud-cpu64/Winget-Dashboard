@@ -300,12 +300,24 @@ Vérification :
 winget source list
 ```
 
-### Installer un paquet depuis la source
+### Commandes winget compatibles avec la source
 
-```powershell
-winget install --id Mozilla.Firefox --source monrepo
-winget upgrade --source monrepo --all
-```
+| Commande | Exemple | Description |
+|----------|---------|-------------|
+| `install` | `winget install --id Mozilla.Firefox --source monrepo` | Installe l'application spécifiée |
+| `show` | `winget show --id Mozilla.Firefox --source monrepo` | Affiche les détails de l'application |
+| `search` | `winget search firefox --source monrepo` | Recherche une application dans le dépôt |
+| `list` | `winget list --source monrepo` | Affiche les packages installés provenant du dépôt |
+| `upgrade` | `winget upgrade --id Mozilla.Firefox --source monrepo` | Met à niveau l'application spécifiée |
+| `upgrade --all` | `winget upgrade --source monrepo --all` | Met à niveau tous les packages du dépôt |
+| `uninstall` | `winget uninstall --id Mozilla.Firefox --source monrepo` | Désinstalle l'application spécifiée |
+| `download` | `winget download --id Mozilla.Firefox --source monrepo` | Télécharge le programme d'installation |
+| `source` | `winget source update monrepo` | Met à jour le cache local du dépôt |
+| `hash` | `winget hash ./setup.exe` | Génère le SHA256 pour un programme d'installation |
+| `export` | `winget export -o packages.json --source monrepo` | Exporte la liste des packages installés |
+| `import` | `winget import -i packages.json` | Installe tous les packages d'un fichier exporté |
+
+> Les commandes `validate`, `configure`, `pin`, `features`, `repair` et `dscv3` ne dépendent pas de la source et fonctionnent indépendamment du dépôt.
 
 ### Endpoints Winget exposés (sans authentification)
 
