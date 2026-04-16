@@ -36,10 +36,19 @@ function buildInstallerManifest(pkg: Package, ver?: PackageVersion) {
     InstallerSha256: sha256,
   };
 
+  if (ver?.installerLocale) installer.InstallerLocale = ver.installerLocale;
+  if (ver?.platform) installer.Platform = [ver.platform];
+  if (ver?.minimumOsVersion) installer.MinimumOSVersion = ver.minimumOsVersion;
+  if (ver?.packageFamilyName) installer.PackageFamilyName = ver.packageFamilyName;
   if (productCode) installer.ProductCode = productCode;
   if (ver?.upgradeCode) installer.UpgradeCode = ver.upgradeCode;
 
-  // Build InstallerSwitches only if at least one switch is defined
+  // InstallModes: stored as comma-separated string, emitted as array
+  if (ver?.installModes) {
+    installer.InstallModes = ver.installModes.split(",").map((m) => m.trim()).filter(Boolean);
+  }
+
+  // InstallerSwitches block
   const silent = ver?.silentSwitch;
   const silentProgress = ver?.silentWithProgressSwitch;
   const installLocation = ver?.installLocationSwitch;
@@ -68,7 +77,7 @@ function buildInstallerManifest(pkg: Package, ver?: PackageVersion) {
 }
 
 function buildDefaultLocaleManifest(pkg: Package, version: string) {
-  return {
+  const manifest: Record<string, unknown> = {
     PackageIdentifier: pkg.packageId,
     PackageVersion: version,
     PackageLocale: "en-US",
@@ -79,6 +88,19 @@ function buildDefaultLocaleManifest(pkg: Package, version: string) {
     ManifestType: "defaultLocale",
     ManifestVersion: "1.4.0",
   };
+
+  if (pkg.publisherUrl) manifest.PublisherUrl = pkg.publisherUrl;
+  if (pkg.publisherSupportUrl) manifest.PublisherSupportUrl = pkg.publisherSupportUrl;
+  if (pkg.privacyUrl) manifest.PrivacyUrl = pkg.privacyUrl;
+  if (pkg.author) manifest.Author = pkg.author;
+  if (pkg.homepage) manifest.PackageUrl = pkg.homepage;
+  if (pkg.licenseUrl) manifest.LicenseUrl = pkg.licenseUrl;
+  if (pkg.copyright) manifest.Copyright = pkg.copyright;
+  if (pkg.copyrightUrl) manifest.CopyrightUrl = pkg.copyrightUrl;
+  if (pkg.moniker) manifest.Moniker = pkg.moniker;
+  if (pkg.tags) manifest.Tags = pkg.tags.split(",").map((t) => t.trim()).filter(Boolean);
+
+  return manifest;
 }
 
 function buildVersionManifest(pkg: Package, version: string) {

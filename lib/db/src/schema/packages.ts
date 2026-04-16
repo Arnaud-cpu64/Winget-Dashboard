@@ -8,12 +8,26 @@ export const packagesTable = pgTable("packages", {
   name: text("name").notNull(),
   publisher: text("publisher").notNull(),
   version: text("version").notNull(),
+
+  // --- DefaultLocaleManifest metadata ---
   description: text("description"),
   license: text("license"),
+  licenseUrl: text("license_url"),
   homepage: text("homepage"),
+  publisherUrl: text("publisher_url"),
+  publisherSupportUrl: text("publisher_support_url"),
+  privacyUrl: text("privacy_url"),
+  author: text("author"),
+  copyright: text("copyright"),
+  copyrightUrl: text("copyright_url"),
+  moniker: text("moniker"),
+  tags: text("tags"),
+
+  // --- Default installer fields (overridden per version in package_versions) ---
   installerUrl: text("installer_url"),
   installerSha256: text("installer_sha256"),
   productCode: text("product_code"),
+
   addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

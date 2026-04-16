@@ -42,12 +42,17 @@ interface PackageVersion {
   installerUrl: string | null;
   installerSha256: string | null;
   installerType: string | null;
+  installerLocale: string | null;
   architecture: string | null;
+  platform: string | null;
+  minimumOsVersion: string | null;
+  packageFamilyName: string | null;
   productCode: string | null;
   upgradeCode: string | null;
   silentSwitch: string | null;
   silentWithProgressSwitch: string | null;
   installLocationSwitch: string | null;
+  installModes: string | null;
   upgradeBehavior: string | null;
   scope: string | null;
   releaseDate: string | null;
@@ -86,12 +91,13 @@ function FieldRow({ icon, label, value, mono = true }: FieldRowProps) {
 function VersionCard({ ver }: { ver: PackageVersion }) {
   return (
     <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-1.5 text-xs font-mono">
-      <div className="flex items-center justify-between">
+      {/* Header: version + badges */}
+      <div className="flex items-center justify-between flex-wrap gap-1">
         <span className="inline-flex items-center gap-1 font-semibold text-foreground">
           <Tag size={11} />
           {ver.version}
         </span>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1">
           {ver.installerType && (
             <span className="rounded border border-border px-1.5 py-0.5 text-[10px] bg-secondary/50 text-muted-foreground uppercase">
               {ver.installerType}
@@ -107,23 +113,31 @@ function VersionCard({ ver }: { ver: PackageVersion }) {
               {ver.scope}
             </span>
           )}
+          {ver.installerLocale && (
+            <span className="rounded border border-border px-1.5 py-0.5 text-[10px] bg-secondary/50 text-muted-foreground">
+              {ver.installerLocale}
+            </span>
+          )}
+          {ver.platform && (
+            <span className="rounded border border-border px-1.5 py-0.5 text-[10px] bg-secondary/50 text-muted-foreground">
+              {ver.platform}
+            </span>
+          )}
         </div>
       </div>
 
+      {/* Installer URL */}
       {ver.installerUrl && (
         <div className="flex items-start gap-1.5 text-muted-foreground">
           <Link2 size={10} className="mt-0.5 shrink-0" />
-          <a
-            href={ver.installerUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="truncate text-primary hover:underline"
-          >
+          <a href={ver.installerUrl} target="_blank" rel="noreferrer"
+            className="truncate text-primary hover:underline">
             {ver.installerUrl}
           </a>
         </div>
       )}
 
+      {/* SHA256 */}
       {ver.installerSha256 && (
         <div className="flex items-start gap-1.5 text-muted-foreground">
           <ShieldCheck size={10} className="mt-0.5 shrink-0" />
@@ -131,13 +145,13 @@ function VersionCard({ ver }: { ver: PackageVersion }) {
         </div>
       )}
 
+      {/* ProductCode + UpgradeCode */}
       {ver.productCode && (
         <div className="flex items-center gap-1.5 text-muted-foreground">
           <KeyRound size={10} className="shrink-0" />
-          <span className="select-all text-amber-400">{ver.productCode}</span>
+          <span className="select-all text-amber-400">PC: {ver.productCode}</span>
         </div>
       )}
-
       {ver.upgradeCode && (
         <div className="flex items-center gap-1.5 text-muted-foreground">
           <RefreshCw size={10} className="shrink-0" />
@@ -145,6 +159,15 @@ function VersionCard({ ver }: { ver: PackageVersion }) {
         </div>
       )}
 
+      {/* PackageFamilyName (MSIX) */}
+      {ver.packageFamilyName && (
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <Hash size={10} className="shrink-0" />
+          <span className="select-all text-purple-400">PFN: {ver.packageFamilyName}</span>
+        </div>
+      )}
+
+      {/* Installer switches */}
       {(ver.silentSwitch || ver.silentWithProgressSwitch || ver.installLocationSwitch) && (
         <div className="flex items-start gap-1.5 text-muted-foreground">
           <Wrench size={10} className="mt-0.5 shrink-0" />
@@ -156,11 +179,26 @@ function VersionCard({ ver }: { ver: PackageVersion }) {
         </div>
       )}
 
+      {/* InstallModes */}
+      {ver.installModes && (
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <Wrench size={10} className="shrink-0" />
+          <span>Modes: <span className="text-foreground">{ver.installModes}</span></span>
+        </div>
+      )}
+
+      {/* Footer metadata */}
       <div className="flex flex-wrap gap-3 text-muted-foreground pt-0.5">
+        {ver.minimumOsVersion && (
+          <span className="flex items-center gap-1">
+            <MonitorDown size={10} />
+            Win ≥ {ver.minimumOsVersion}
+          </span>
+        )}
         {ver.upgradeBehavior && (
           <span className="flex items-center gap-1">
             <MonitorDown size={10} />
-            Upgrade: {ver.upgradeBehavior}
+            {ver.upgradeBehavior}
           </span>
         )}
         {ver.elevationRequirement && (
@@ -241,6 +279,31 @@ export function PackageDetailModal({
         {/* Package-level info */}
         <div className="divide-y divide-border/50">
           <FieldRow icon={<Building2 size={14} />} label="Éditeur" value={pkg.publisher} />
+          {(pkg as any).author && (
+            <FieldRow icon={<Building2 size={14} />} label="Auteur" value={(pkg as any).author} />
+          )}
+          {(pkg as any).moniker && (
+            <FieldRow
+              icon={<Tag size={14} />}
+              label="Moniker (alias)"
+              value={<span className="text-primary">{(pkg as any).moniker}</span>}
+            />
+          )}
+          {(pkg as any).tags && (
+            <FieldRow
+              icon={<Tag size={14} />}
+              label="Tags"
+              value={
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {(pkg as any).tags.split(",").map((t: string) => t.trim()).filter(Boolean).map((tag: string) => (
+                    <span key={tag} className="rounded border border-border px-1.5 py-0.5 text-[10px] bg-secondary/50 text-muted-foreground font-mono">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              }
+            />
+          )}
           {pkg.description && (
             <FieldRow
               icon={<FileText size={14} />}
@@ -250,12 +313,29 @@ export function PackageDetailModal({
             />
           )}
           {pkg.license && (
-            <FieldRow icon={<Scale size={14} />} label="Licence" value={pkg.license} />
+            <FieldRow
+              icon={<Scale size={14} />}
+              label="Licence"
+              value={
+                <span>
+                  {pkg.license}
+                  {(pkg as any).licenseUrl && (
+                    <a href={(pkg as any).licenseUrl} target="_blank" rel="noreferrer"
+                      className="ml-2 text-primary hover:underline inline-flex items-center gap-0.5 text-xs">
+                      <ExternalLink size={10} /> URL
+                    </a>
+                  )}
+                </span>
+              }
+            />
+          )}
+          {(pkg as any).copyright && (
+            <FieldRow icon={<Scale size={14} />} label="Copyright" value={(pkg as any).copyright} />
           )}
           {pkg.homepage && (
             <FieldRow
               icon={<Link2 size={14} />}
-              label="Site web"
+              label="Site web du paquet"
               value={
                 <a href={pkg.homepage} target="_blank" rel="noreferrer"
                   className="text-primary hover:underline flex items-center gap-1 truncate">
@@ -265,10 +345,36 @@ export function PackageDetailModal({
               }
             />
           )}
+          {(pkg as any).publisherUrl && (
+            <FieldRow
+              icon={<Link2 size={14} />}
+              label="Site de l'éditeur"
+              value={
+                <a href={(pkg as any).publisherUrl} target="_blank" rel="noreferrer"
+                  className="text-primary hover:underline flex items-center gap-1 truncate">
+                  {(pkg as any).publisherUrl}
+                  <ExternalLink size={11} className="shrink-0" />
+                </a>
+              }
+            />
+          )}
+          {(pkg as any).publisherSupportUrl && (
+            <FieldRow
+              icon={<Link2 size={14} />}
+              label="Support"
+              value={
+                <a href={(pkg as any).publisherSupportUrl} target="_blank" rel="noreferrer"
+                  className="text-primary hover:underline flex items-center gap-1 truncate">
+                  {(pkg as any).publisherSupportUrl}
+                  <ExternalLink size={11} className="shrink-0" />
+                </a>
+              }
+            />
+          )}
           {pkg.productCode && (
             <FieldRow
               icon={<KeyRound size={14} />}
-              label="Product Code (package)"
+              label="Product Code"
               value={<span className="text-amber-400 select-all uppercase tracking-wider">{pkg.productCode}</span>}
             />
           )}
