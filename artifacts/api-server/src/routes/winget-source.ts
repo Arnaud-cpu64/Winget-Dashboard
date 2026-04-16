@@ -6,13 +6,7 @@ import type { Package, PackageVersion } from "@workspace/db";
 
 const router: IRouter = Router();
 
-const API_VERSION = "1.1.0";
-const SUPPORTED_CONTRACTS = [
-  {
-    ContractName: "com.microsoft.winget.contract.packages",
-    ContractVersion: "1.0.0",
-  },
-];
+const API_VERSION = "1.7.0";
 
 const ZERO_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -78,10 +72,20 @@ function buildVersionManifest(pkg: Package, version: string) {
   };
 }
 
-function buildVersionEntry(version: string) {
+function buildDefaultLocaleShort(pkg: Package) {
+  return {
+    PackageLocale: "en-US",
+    Publisher: pkg.publisher,
+    PackageName: pkg.name,
+    License: pkg.license ?? "Unknown",
+    ShortDescription: pkg.description ?? pkg.name,
+  };
+}
+
+function buildVersionEntry(version: string, pkg: Package) {
   return {
     PackageVersion: version,
-    DefaultLocale: "en-US",
+    DefaultLocale: buildDefaultLocaleShort(pkg),
     Channel: null,
   };
 }
@@ -105,7 +109,6 @@ async function resolveVersions(pkg: Package): Promise<string[]> {
 
 /**
  * Resolves a specific version record, or falls back to the package row.
- * Returns { found: true, versionRow?, version } or { found: false }.
  */
 async function resolveVersion(
   pkg: Package,
@@ -129,8 +132,8 @@ async function resolveVersion(
 
 /**
  * GET /winget/information
- * Returns the API version and supported contracts.
  * Required by winget client during source initialization.
+ * https://github.com/microsoft/winget-cli-restsource
  */
 router.get("/information", (_req, res) => {
   res.json({
@@ -145,16 +148,15 @@ router.get("/information", (_req, res) => {
       UnsupportedQueryParameters: [],
       RequiredQueryParameters: [],
     },
-    SupportedContracts: SUPPORTED_CONTRACTS,
   });
 });
 
 /**
- * POST /winget/packages/search
- * Winget v1 protocol uses POST for package search with a body.
- * Supports filtering by PackageName, Publisher, PackageIdentifier, and keyword.
+ * POST /winget/manifestSearch
+ * Winget REST source contract — search endpoint.
+ * Called by `winget search`, `winget install`, `winget upgrade`.
  */
-router.post("/packages/search", async (req, res): Promise<void> => {
+router.post("/manifestSearch", async (req, res): Promise<void> => {
   try {
     const body = req.body as {
       Query?: { KeyWord?: string; MatchType?: string };
@@ -190,7 +192,7 @@ router.post("/packages/search", async (req, res): Promise<void> => {
         conditions.push(ilike(packagesTable.publisher, `%${kw}%`));
       } else if (field === "PackageIdentifier") {
         conditions.push(ilike(packagesTable.packageId, `%${kw}%`));
-      } else if (field === "Keyword" || field === "Tag" || field === "Command") {
+      } else if (field === "Keyword" || field === "Tag" || field === "Command" || field === "Moniker") {
         conditions.push(
           or(
             ilike(packagesTable.name, `%${kw}%`),
@@ -219,7 +221,7 @@ router.post("/packages/search", async (req, res): Promise<void> => {
           PackageIdentifier: buildPackageIdentifier(pkg),
           PackageName: pkg.name,
           Publisher: pkg.publisher,
-          Versions: versions.map(buildVersionEntry),
+          Versions: versions.map((v) => buildVersionEntry(v, pkg)),
         };
       }),
     );
@@ -236,178 +238,82 @@ router.post("/packages/search", async (req, res): Promise<void> => {
 });
 
 /**
- * GET /winget/packages
- * Lists all packages with optional pagination and filters.
+ * GET /winget/packageManifests/:packageIdentifier
+ * Returns all versions + manifests for a specific package.
+ * Called by `winget install` and `winget show`.
  */
-router.get("/packages", async (req, res): Promise<void> => {
+router.get("/packageManifests/:packageIdentifier", async (req, res): Promise<void> => {
   try {
-    const { name, publisher, version, continuationToken, limit: limitStr } = req.query as Record<string, string>;
-    const limit = Math.min(parseInt(limitStr ?? "20", 10) || 20, 100);
-    const offset = continuationToken ? parseInt(continuationToken, 10) || 0 : 0;
+    const { packageIdentifier } = req.params;
+    const [pkg] = await db
+      .select()
+      .from(packagesTable)
+      .where(eq(packagesTable.packageId, packageIdentifier));
 
-    const conditions = [];
-    if (name) conditions.push(ilike(packagesTable.name, `%${name}%`));
-    if (publisher) conditions.push(ilike(packagesTable.publisher, `%${publisher}%`));
-    if (version) conditions.push(ilike(packagesTable.version, `%${version}%`));
-
-    let packages: Package[];
-    if (conditions.length > 0) {
-      packages = await db
-        .select()
-        .from(packagesTable)
-        .where(and(...conditions))
-        .limit(limit + 1)
-        .offset(offset);
-    } else {
-      packages = await db.select().from(packagesTable).limit(limit + 1).offset(offset);
+    if (!pkg) {
+      res.status(404).json({ Data: null });
+      return;
     }
 
-    const hasMore = packages.length > limit;
-    const page = hasMore ? packages.slice(0, limit) : packages;
-    const nextToken = hasMore ? String(offset + limit) : undefined;
+    const versions = await resolveVersions(pkg);
 
-    const data = await Promise.all(
-      page.map(async (pkg) => {
-        const versions = await resolveVersions(pkg);
+    const versionData = await Promise.all(
+      versions.map(async (version) => {
+        const resolved = await resolveVersion(pkg, version);
+        if (!resolved.found) return null;
+
+        const versionManifest = buildVersionManifest(pkg, version);
+        const defaultLocaleManifest = buildDefaultLocaleManifest(pkg, version);
+        const installerManifest = resolved.versionRow
+          ? buildInstallerManifestFromVersion(pkg, resolved.versionRow)
+          : buildInstallerManifest(pkg);
+
         return {
-          PackageIdentifier: buildPackageIdentifier(pkg),
-          Versions: versions.map(buildVersionEntry),
+          PackageVersion: version,
+          DefaultLocale: buildDefaultLocaleShort(pkg),
+          Channel: null,
+          Manifests: {
+            VersionManifest: yaml.dump(versionManifest, { lineWidth: -1 }),
+            DefaultLocaleManifest: yaml.dump(defaultLocaleManifest, { lineWidth: -1 }),
+            LocaleManifests: [],
+            InstallerManifest: yaml.dump(installerManifest, { lineWidth: -1 }),
+          },
         };
       }),
     );
 
     res.json({
-      Data: data,
-      ...(nextToken ? { ContinuationToken: nextToken } : {}),
-    });
-  } catch (err) {
-    req.log.error({ err }, "Error listing winget packages");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-/**
- * GET /winget/packages/:packageIdentifier
- * Returns details for a specific package.
- */
-router.get("/packages/:packageIdentifier", async (req, res): Promise<void> => {
-  try {
-    const { packageIdentifier } = req.params;
-    const [pkg] = await db
-      .select()
-      .from(packagesTable)
-      .where(eq(packagesTable.packageId, packageIdentifier));
-
-    if (!pkg) {
-      res.status(404).json({ error: "Package not found" });
-      return;
-    }
-
-    const versions = await resolveVersions(pkg);
-
-    res.json({
       Data: {
         PackageIdentifier: buildPackageIdentifier(pkg),
-        Publisher: pkg.publisher,
-        PackageName: pkg.name,
-        Description: pkg.description ?? null,
-        Homepage: pkg.homepage ?? null,
-        License: pkg.license ?? null,
-        Versions: versions.map(buildVersionEntry),
+        Versions: versionData.filter(Boolean),
       },
     });
   } catch (err) {
-    req.log.error({ err }, "Error fetching winget package");
+    req.log.error({ err }, "Error fetching winget package manifests");
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
 /**
- * GET /winget/packages/:packageIdentifier/versions
- * Returns the list of available versions for a package.
+ * GET /winget/packageManifests/:packageIdentifier/:packageVersionId
+ * Returns manifests for a specific version of a package.
  */
-router.get("/packages/:packageIdentifier/versions", async (req, res): Promise<void> => {
+router.get("/packageManifests/:packageIdentifier/:packageVersionId", async (req, res): Promise<void> => {
   try {
-    const { packageIdentifier } = req.params;
+    const { packageIdentifier, packageVersionId } = req.params;
     const [pkg] = await db
       .select()
       .from(packagesTable)
       .where(eq(packagesTable.packageId, packageIdentifier));
 
     if (!pkg) {
-      res.status(404).json({ error: "Package not found" });
+      res.status(404).json({ Data: null });
       return;
     }
 
-    const versions = await resolveVersions(pkg);
-
-    res.json({
-      Data: versions.map(buildVersionEntry),
-    });
-  } catch (err) {
-    req.log.error({ err }, "Error fetching winget package versions");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-/**
- * GET /winget/packages/:packageIdentifier/versions/:version
- * Returns detail for a specific version of a package.
- */
-router.get("/packages/:packageIdentifier/versions/:version", async (req, res): Promise<void> => {
-  try {
-    const { packageIdentifier, version } = req.params;
-    const [pkg] = await db
-      .select()
-      .from(packagesTable)
-      .where(eq(packagesTable.packageId, packageIdentifier));
-
-    if (!pkg) {
-      res.status(404).json({ error: "Package not found" });
-      return;
-    }
-
-    const resolved = await resolveVersion(pkg, version);
+    const resolved = await resolveVersion(pkg, packageVersionId);
     if (!resolved.found) {
-      res.status(404).json({ error: "Version not found" });
-      return;
-    }
-
-    res.json({ Data: buildVersionEntry(resolved.version) });
-  } catch (err) {
-    req.log.error({ err }, "Error fetching winget package version");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-/**
- * GET /winget/packages/:packageIdentifier/versions/:version/manifests
- * Returns the manifest for a specific version of a package.
- *
- * The response embeds YAML-serialized manifest strings inside a JSON envelope,
- * matching the Winget REST source contract format. Each manifest sub-type
- * (version, defaultLocale, installer) is serialized to YAML independently.
- *
- * For `winget install` to work end-to-end, the package must have a valid
- * InstallerUrl and InstallerSha256 (either on the package row or in the
- * package_versions table for the requested version).
- */
-router.get("/packages/:packageIdentifier/versions/:version/manifests", async (req, res): Promise<void> => {
-  try {
-    const { packageIdentifier, version } = req.params;
-    const [pkg] = await db
-      .select()
-      .from(packagesTable)
-      .where(eq(packagesTable.packageId, packageIdentifier));
-
-    if (!pkg) {
-      res.status(404).json({ error: "Package not found" });
-      return;
-    }
-
-    const resolved = await resolveVersion(pkg, version);
-    if (!resolved.found) {
-      res.status(404).json({ error: "Version not found" });
+      res.status(404).json({ Data: null });
       return;
     }
 
@@ -419,14 +325,24 @@ router.get("/packages/:packageIdentifier/versions/:version/manifests", async (re
 
     res.json({
       Data: {
-        VersionManifest: yaml.dump(versionManifest, { lineWidth: -1 }),
-        DefaultLocaleManifest: yaml.dump(defaultLocaleManifest, { lineWidth: -1 }),
-        LocaleManifests: [],
-        InstallerManifest: yaml.dump(installerManifest, { lineWidth: -1 }),
+        PackageIdentifier: buildPackageIdentifier(pkg),
+        Versions: [
+          {
+            PackageVersion: resolved.version,
+            DefaultLocale: buildDefaultLocaleShort(pkg),
+            Channel: null,
+            Manifests: {
+              VersionManifest: yaml.dump(versionManifest, { lineWidth: -1 }),
+              DefaultLocaleManifest: yaml.dump(defaultLocaleManifest, { lineWidth: -1 }),
+              LocaleManifests: [],
+              InstallerManifest: yaml.dump(installerManifest, { lineWidth: -1 }),
+            },
+          },
+        ],
       },
     });
   } catch (err) {
-    req.log.error({ err }, "Error fetching winget package manifests");
+    req.log.error({ err }, "Error fetching winget package version manifests");
     res.status(500).json({ error: "Internal server error" });
   }
 });
