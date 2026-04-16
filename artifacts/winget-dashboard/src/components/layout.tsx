@@ -5,7 +5,9 @@ import { useHealthCheck } from "@workspace/api-client-react";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { data: health } = useHealthCheck();
+  const { data: health } = useHealthCheck({
+    query: { refetchInterval: 30000, retry: 3 },
+  });
 
   const navItems = [
     { href: "/", label: "Tableau de bord", icon: Package },
