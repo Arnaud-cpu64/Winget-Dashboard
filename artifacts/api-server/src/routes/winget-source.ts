@@ -25,26 +25,46 @@ function buildInstallerManifest(pkg: Package, ver?: PackageVersion) {
   const sha256 = ver?.installerSha256 ?? pkg.installerSha256 ?? ZERO_SHA256;
   const arch = ver?.architecture ?? "x64";
   const type = ver?.installerType ?? "exe";
+  const scope = ver?.scope ?? "machine";
+  const productCode = ver?.productCode ?? pkg.productCode;
 
   const installer: Record<string, unknown> = {
     Architecture: arch,
     InstallerType: type,
-    Scope: "machine",
+    Scope: scope,
     InstallerUrl: url,
     InstallerSha256: sha256,
   };
 
-  if (pkg.productCode) {
-    installer.ProductCode = pkg.productCode;
+  if (productCode) installer.ProductCode = productCode;
+  if (ver?.upgradeCode) installer.UpgradeCode = ver.upgradeCode;
+
+  // Build InstallerSwitches only if at least one switch is defined
+  const silent = ver?.silentSwitch;
+  const silentProgress = ver?.silentWithProgressSwitch;
+  const installLocation = ver?.installLocationSwitch;
+  if (silent || silentProgress || installLocation) {
+    const switches: Record<string, string> = {};
+    if (silent) switches.Silent = silent;
+    if (silentProgress) switches.SilentWithProgress = silentProgress;
+    if (installLocation) switches.InstallLocation = installLocation;
+    installer.InstallerSwitches = switches;
   }
 
-  return {
+  if (ver?.elevationRequirement) installer.ElevationRequirement = ver.elevationRequirement;
+
+  const manifest: Record<string, unknown> = {
     PackageIdentifier: pkg.packageId,
     PackageVersion: version,
+    UpgradeBehavior: ver?.upgradeBehavior ?? "install",
     Installers: [installer],
     ManifestType: "installer",
     ManifestVersion: "1.4.0",
   };
+
+  if (ver?.releaseDate) manifest.ReleaseDate = ver.releaseDate;
+
+  return manifest;
 }
 
 function buildDefaultLocaleManifest(pkg: Package, version: string) {

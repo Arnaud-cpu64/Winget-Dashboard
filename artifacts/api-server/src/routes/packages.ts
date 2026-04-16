@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, count, countDistinct, gte, sql } from "drizzle-orm";
-import { db, packagesTable } from "@workspace/db";
+import { db, packagesTable, packageVersionsTable } from "@workspace/db";
 import {
   AddPackageBody,
   GetPackageParams,
@@ -131,6 +131,33 @@ router.patch("/packages/:id", async (req, res): Promise<void> => {
   }
 
   res.json(GetPackageResponse.parse(pkg));
+});
+
+router.get("/packages/:id/versions", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const params = GetPackageParams.safeParse({ id: parseInt(raw, 10) });
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [pkg] = await db
+    .select()
+    .from(packagesTable)
+    .where(eq(packagesTable.id, params.data.id));
+
+  if (!pkg) {
+    res.status(404).json({ error: "Package not found" });
+    return;
+  }
+
+  const versions = await db
+    .select()
+    .from(packageVersionsTable)
+    .where(eq(packageVersionsTable.packageId, params.data.id))
+    .orderBy(sql`${packageVersionsTable.addedAt} desc`);
+
+  res.json(versions);
 });
 
 router.delete("/packages/:id", async (req, res): Promise<void> => {
