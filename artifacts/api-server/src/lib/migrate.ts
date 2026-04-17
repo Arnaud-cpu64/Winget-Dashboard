@@ -38,6 +38,12 @@ export async function migrateSchema(): Promise<void> {
 
     // v1.0.21 — packages: productCode
     `ALTER TABLE packages ADD COLUMN IF NOT EXISTS product_code TEXT`,
+
+    // v1.0.27 — change unique constraint from (package_id, version)
+    //           to (package_id, version, architecture) to allow multi-arch entries
+    `ALTER TABLE package_versions DROP CONSTRAINT IF EXISTS package_versions_package_id_version_unique`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS package_versions_package_id_version_arch_unique
+       ON package_versions (package_id, version, COALESCE(architecture, ''))`,
   ];
 
   for (const stmt of stmts) {

@@ -13,7 +13,7 @@ import {
   GetPackageStatsResponse,
   ListPackagesResponse,
 } from "@workspace/api-zod";
-import { getPackageVersion } from "./winget.js";
+import { getPackageVersion, fetchInstallerManifest } from "./winget.js";
 
 const router: IRouter = Router();
 
@@ -79,10 +79,10 @@ router.post("/packages", async (req, res): Promise<void> => {
     }
   }
 
-  // Separate package-level fields from version-specific installer fields
+  // Strip version-specific installer fields from the packages table insert
   const {
-    installerType, architecture, scope, upgradeCode,
-    silentSwitch, silentWithProgressSwitch, upgradeBehavior,
+    installerType: _it, architecture: _ar, scope: _sc, upgradeCode: _uc,
+    silentSwitch: _ss, silentWithProgressSwitch: _sp, upgradeBehavior: _ub,
     ...pkgFields
   } = parsed.data as any;
 
@@ -91,21 +91,60 @@ router.post("/packages", async (req, res): Promise<void> => {
     .values({ ...pkgFields, version: resolvedVersion })
     .returning();
 
-  // Create the matching entry in package_versions so the modal "versions hébergées" is populated
-  await db.insert(packageVersionsTable).values({
-    packageId: pkg.id,
-    version: resolvedVersion,
-    installerUrl: pkgFields.installerUrl ?? null,
-    installerSha256: pkgFields.installerSha256 ?? null,
-    installerType: installerType ?? null,
-    architecture: architecture ?? null,
-    scope: scope ?? null,
-    productCode: pkgFields.productCode ?? null,
-    upgradeCode: upgradeCode ?? null,
-    silentSwitch: silentSwitch ?? null,
-    silentWithProgressSwitch: silentWithProgressSwitch ?? null,
-    upgradeBehavior: upgradeBehavior ?? null,
-  }).onConflictDoNothing();
+  // Auto-fetch installer details from the winget-pkgs GitHub manifest
+  let installers = await (async () => {
+    try {
+      return await Promise.race([
+        fetchInstallerManifest(pkg.packageId, resolvedVersion),
+        new Promise<[]>((resolve) => setTimeout(() => resolve([]), 12000)),
+      ]);
+    } catch {
+      return [];
+    }
+  })();
+
+  if (installers.length > 0) {
+    // Insert one package_versions row per installer entry (one per architecture)
+    await db.insert(packageVersionsTable).values(
+      installers.map((ins) => ({
+        packageId: pkg.id,
+        version: resolvedVersion,
+        installerUrl: ins.installerUrl,
+        installerSha256: ins.installerSha256 || null,
+        installerType: ins.installerType,
+        architecture: ins.architecture,
+        scope: ins.scope,
+        productCode: ins.productCode,
+        upgradeCode: ins.upgradeCode,
+        packageFamilyName: ins.packageFamilyName,
+        silentSwitch: ins.silentSwitch,
+        silentWithProgressSwitch: ins.silentWithProgressSwitch,
+        installLocationSwitch: ins.installLocationSwitch,
+        installModes: ins.installModes,
+        upgradeBehavior: ins.upgradeBehavior,
+        minimumOsVersion: ins.minimumOsVersion,
+        installerLocale: ins.installerLocale,
+        releaseDate: ins.releaseDate,
+        elevationRequirement: ins.elevationRequirement,
+      })),
+    ).onConflictDoNothing();
+  } else {
+    // Fallback: insert a single entry with whatever was passed in the body
+    await db.insert(packageVersionsTable).values({
+      packageId: pkg.id,
+      version: resolvedVersion,
+      installerUrl: pkgFields.installerUrl ?? null,
+      installerSha256: pkgFields.installerSha256 ?? null,
+      installerType: (_it as string | null) ?? null,
+      architecture: (_ar as string | null) ?? null,
+      scope: (_sc as string | null) ?? null,
+      productCode: pkgFields.productCode ?? null,
+      upgradeCode: (_uc as string | null) ?? null,
+      silentSwitch: (_ss as string | null) ?? null,
+      silentWithProgressSwitch: (_sp as string | null) ?? null,
+      upgradeBehavior: (_ub as string | null) ?? null,
+    }).onConflictDoNothing();
+  }
 
   res.status(201).json(GetPackageResponse.parse(pkg));
 });

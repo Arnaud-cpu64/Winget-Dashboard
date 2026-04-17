@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { ProxyAgent } from "undici";
+import yaml from "js-yaml";
 import { SearchWingetQueryParams, SearchWingetResponse } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -170,6 +171,153 @@ const POPULAR_PACKAGES: [string, string, ...string[]][] = [
   ["WinSCP.WinSCP", "WinSCP", "winscp", "sftp", "ftp"],
   ["Zoom.Zoom", "Zoom", "zoom", "video call"],
 ];
+
+// ── Manifest installer fetcher ─────────────────────────────────────────────
+
+export interface InstallerEntry {
+  architecture: string;
+  installerType: string;
+  installerUrl: string;
+  installerSha256: string;
+  scope: string | null;
+  productCode: string | null;
+  upgradeCode: string | null;
+  packageFamilyName: string | null;
+  silentSwitch: string | null;
+  silentWithProgressSwitch: string | null;
+  installLocationSwitch: string | null;
+  installModes: string | null;
+  upgradeBehavior: string | null;
+  minimumOsVersion: string | null;
+  installerLocale: string | null;
+  releaseDate: string | null;
+  elevationRequirement: string | null;
+}
+
+async function fetchRawFile(rawUrl: string): Promise<string | null> {
+  const headers: Record<string, string> = {
+    "User-Agent": "winget-repo-dashboard/1.0",
+    Accept: "text/plain",
+  };
+  if (validatedToken) headers["Authorization"] = `Bearer ${validatedToken}`;
+  const fetchOptions: RequestInit & { dispatcher?: ProxyAgent } = {
+    headers,
+    signal: AbortSignal.timeout(10000),
+  };
+  if (proxyAgent) fetchOptions.dispatcher = proxyAgent;
+  const res = await fetch(rawUrl, fetchOptions);
+  if (!res.ok) return null;
+  return res.text();
+}
+
+function str(v: unknown): string | null {
+  if (v == null) return null;
+  return String(v);
+}
+
+/** Converts a YAML date value (may be a JS Date object) to YYYY-MM-DD string. */
+function strDate(v: unknown): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  const s = String(v);
+  // Accept YYYY-MM-DD format directly
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // Try parsing other formats
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return null;
+}
+
+/**
+ * Fetches and parses the installer manifest YAML from winget-pkgs on GitHub.
+ * Returns an array of installer entries (one per architecture typically).
+ */
+export async function fetchInstallerManifest(
+  packageId: string,
+  version: string,
+): Promise<InstallerEntry[]> {
+  const parts = packageId.split(".");
+  if (parts.length < 2) return [];
+  const firstChar = parts[0]![0]!.toLowerCase();
+  const manifestPath = `manifests/${firstChar}/${parts.join("/")}/${version}`;
+  const BASE = `https://raw.githubusercontent.com/microsoft/winget-pkgs/master/${manifestPath}`;
+
+  // Try new manifest format first (no version in filename), then legacy format
+  let text: string | null = null;
+  for (const fileName of [
+    `${packageId}.installer.yaml`,
+    `${packageId}.installer.${version}.yaml`,
+  ]) {
+    try {
+      text = await fetchRawFile(`${BASE}/${fileName}`);
+      if (text && !text.startsWith("404")) break;
+    } catch {
+      /* try next */
+    }
+  }
+  if (!text || text.startsWith("404")) return [];
+
+  let doc: any;
+  try {
+    doc = yaml.load(text);
+  } catch {
+    return [];
+  }
+  if (!doc || typeof doc !== "object") return [];
+
+  // Top-level defaults (some manifests put shared fields at root)
+  const topType = str(doc.InstallerType);
+  const topScope = str(doc.Scope);
+  const topLocale = str(doc.InstallerLocale);
+  const topMinOs = str(doc.MinimumOSVersion);
+  const topUpgradeBehavior = str(doc.UpgradeBehavior);
+  const topElevation = str(doc.ElevationRequirement);
+  const topReleaseDate = strDate(doc.ReleaseDate);
+  const topInstallModes = Array.isArray(doc.InstallModes)
+    ? (doc.InstallModes as string[]).join(",")
+    : null;
+  const topSwitches = doc.InstallerSwitches ?? {};
+  const topSilent = str(topSwitches.Silent);
+  const topSilentProgress = str(topSwitches.SilentWithProgress);
+  const topInstallLocation = str(topSwitches.InstallLocation);
+
+  const rawInstallers: any[] = Array.isArray(doc.Installers) ? doc.Installers : [];
+
+  // If no Installers array, treat the doc itself as a single installer
+  if (rawInstallers.length === 0 && doc.InstallerUrl) {
+    rawInstallers.push(doc);
+  }
+
+  return rawInstallers
+    .filter((i) => i.InstallerUrl)
+    .map((i) => {
+      const sw = i.InstallerSwitches ?? {};
+      const modes = Array.isArray(i.InstallModes)
+        ? (i.InstallModes as string[]).join(",")
+        : topInstallModes;
+      return {
+        architecture: str(i.Architecture) ?? "x64",
+        installerType: str(i.InstallerType) ?? topType ?? "exe",
+        installerUrl: str(i.InstallerUrl)!,
+        installerSha256: str(i.InstallerSha256) ?? "",
+        scope: str(i.Scope) ?? topScope,
+        productCode: str(i.ProductCode) ?? null,
+        upgradeCode: str(i.UpgradeCode) ?? null,
+        packageFamilyName: str(i.PackageFamilyName) ?? null,
+        silentSwitch: str(sw.Silent) ?? topSilent,
+        silentWithProgressSwitch: str(sw.SilentWithProgress) ?? topSilentProgress,
+        installLocationSwitch: str(sw.InstallLocation) ?? topInstallLocation,
+        installModes: modes,
+        upgradeBehavior: str(i.UpgradeBehavior) ?? topUpgradeBehavior,
+        minimumOsVersion: str(i.MinimumOSVersion) ?? topMinOs,
+        installerLocale: str(i.InstallerLocale) ?? topLocale,
+        releaseDate: strDate(i.ReleaseDate) ?? topReleaseDate,
+        elevationRequirement: str(i.ElevationRequirement) ?? topElevation,
+      } satisfies InstallerEntry;
+    });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 async function fetchGitHubContents(path: string): Promise<GitHubContent[]> {
   const url = `${GITHUB_API}/repos/${REPO}/contents/${path}`;

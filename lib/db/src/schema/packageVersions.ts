@@ -46,7 +46,7 @@ export const packageVersionsTable = pgTable(
 
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("package_versions_package_id_version_unique").on(t.packageId, t.version)],
+  (t) => [unique("package_versions_package_id_version_arch_unique").on(t.packageId, t.version, t.architecture)],
 );
 
 export const insertPackageVersionSchema = createInsertSchema(packageVersionsTable).omit({

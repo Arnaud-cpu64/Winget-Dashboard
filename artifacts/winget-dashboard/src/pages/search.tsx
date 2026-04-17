@@ -14,24 +14,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search as SearchIcon, Download, Globe, Scale, BookOpen, Database } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { AddPackageDialog, type AddPackageFormData } from "@/components/add-package-dialog";
-
-type SearchPkg = {
-  packageId: string;
-  name: string;
-  publisher: string;
-  version: string;
-  description?: string | null;
-  license?: string | null;
-  homepage?: string | null;
-};
 
 export default function SearchPage() {
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebounce(searchInput, 300);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [dialogPkg, setDialogPkg] = useState<SearchPkg | null>(null);
 
   const { data: searchResults, isLoading: isSearching, isFetching } = useSearchWinget(
     { q: debouncedSearch, limit: 20 },
@@ -44,18 +32,17 @@ export default function SearchPage() {
   const isPackageAdded = (packageId: string) =>
     localPackages?.some((p) => p.packageId === packageId) || false;
 
-  const handleConfirmAdd = (data: AddPackageFormData) => {
+  const handleAdd = (pkg: any) => {
     addPackage.mutate(
-      { data },
+      { data: pkg },
       {
         onSuccess: () => {
           toast({
             title: "Package ajouté",
-            description: `${data.name} a été ajouté au dépôt local.`,
+            description: `${pkg.name} a été ajouté. Les détails d'installation ont été récupérés automatiquement.`,
           });
           queryClient.invalidateQueries({ queryKey: getListPackagesQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetPackageStatsQueryKey() });
-          setDialogPkg(null);
         },
         onError: (error: any) => {
           toast({
@@ -69,7 +56,6 @@ export default function SearchPage() {
   };
 
   const showLoading = isSearching && isFetching && debouncedSearch.length > 0;
-  const isAdding = addPackage.isPending;
 
   return (
     <div className="space-y-6">
@@ -80,6 +66,7 @@ export default function SearchPage() {
         </h1>
         <p className="text-muted-foreground mt-2 font-mono text-sm">
           Recherchez dans le dépôt officiel Windows Package Manager et ajoutez des packages à votre instance locale.
+          Les détails d&apos;installation sont récupérés automatiquement depuis les manifests winget.
         </p>
       </div>
 
@@ -124,7 +111,7 @@ export default function SearchPage() {
         ) : searchResults?.length === 0 ? (
           <div className="h-48 flex items-center justify-center border border-dashed border-border rounded-lg bg-card/20">
             <p className="text-muted-foreground font-mono text-sm">
-              Aucun package trouvé pour «&nbsp;{debouncedSearch}&nbsp;».
+              Aucun package trouvé pour &laquo;&nbsp;{debouncedSearch}&nbsp;&raquo;.
             </p>
           </div>
         ) : (
@@ -132,7 +119,8 @@ export default function SearchPage() {
             {searchResults?.map((pkg) => {
               const added = isPackageAdded(pkg.packageId);
               const isAddingThis =
-                isAdding && addPackage.variables?.data?.packageId === pkg.packageId;
+                addPackage.isPending &&
+                addPackage.variables?.data?.packageId === pkg.packageId;
 
               return (
                 <Card
@@ -184,7 +172,7 @@ export default function SearchPage() {
 
                     <div className="flex-shrink-0 w-full sm:w-auto mt-2 sm:mt-0">
                       <Button
-                        onClick={() => setDialogPkg(pkg as SearchPkg)}
+                        onClick={() => handleAdd(pkg)}
                         disabled={added || isAddingThis}
                         className={`w-full sm:w-[140px] font-mono ${
                           added
@@ -215,14 +203,6 @@ export default function SearchPage() {
           </div>
         )}
       </div>
-
-      <AddPackageDialog
-        pkg={dialogPkg}
-        open={dialogPkg !== null}
-        onClose={() => setDialogPkg(null)}
-        onConfirm={handleConfirmAdd}
-        isAdding={isAdding}
-      />
     </div>
   );
 }
