@@ -6,6 +6,9 @@ import {
   GetPackageParams,
   RemovePackageParams,
   UpdatePackageVersionBody,
+  UpdatePackageBody,
+  UpdateVersionBody,
+  UpdateVersionParams,
   GetPackageResponse,
   GetPackageStatsResponse,
   ListPackagesResponse,
@@ -122,15 +125,29 @@ router.patch("/packages/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const body = UpdatePackageVersionBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: body.error.message });
+  // Accept either the new full-body schema or the legacy { version } body
+  const full = UpdatePackageBody.safeParse(req.body);
+  const legacy = UpdatePackageVersionBody.safeParse(req.body);
+  if (!full.success && !legacy.success) {
+    res.status(400).json({ error: full.error?.message ?? "Invalid body" });
+    return;
+  }
+
+  const updates = full.success ? full.data : { version: legacy.data!.version };
+
+  // Strip null/undefined so we only SET fields that were provided
+  const setFields = Object.fromEntries(
+    Object.entries(updates).filter(([, v]) => v !== undefined && v !== null),
+  );
+
+  if (Object.keys(setFields).length === 0) {
+    res.status(400).json({ error: "No fields to update" });
     return;
   }
 
   const [pkg] = await db
     .update(packagesTable)
-    .set({ version: body.data.version })
+    .set(setFields)
     .where(eq(packagesTable.id, params.data.id))
     .returning();
 
@@ -140,6 +157,49 @@ router.patch("/packages/:id", async (req, res): Promise<void> => {
   }
 
   res.json(GetPackageResponse.parse(pkg));
+});
+
+router.patch("/packages/:id/versions/:versionId", async (req, res): Promise<void> => {
+  const idRaw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const vidRaw = Array.isArray(req.params.versionId) ? req.params.versionId[0] : req.params.versionId;
+  const params = UpdateVersionParams.safeParse({
+    id: parseInt(idRaw, 10),
+    versionId: parseInt(vidRaw, 10),
+  });
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const body = UpdateVersionBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
+  const setFields = Object.fromEntries(
+    Object.entries(body.data).filter(([, v]) => v !== undefined && v !== null),
+  );
+
+  if (Object.keys(setFields).length === 0) {
+    res.status(400).json({ error: "No fields to update" });
+    return;
+  }
+
+  const [ver] = await db
+    .update(packageVersionsTable)
+    .set(setFields)
+    .where(
+      eq(packageVersionsTable.id, params.data.versionId),
+    )
+    .returning();
+
+  if (!ver) {
+    res.status(404).json({ error: "Version not found" });
+    return;
+  }
+
+  res.json(ver);
 });
 
 router.get("/packages/:id/versions", async (req, res): Promise<void> => {

@@ -121,7 +121,65 @@ export const GetPackageResponse = zod.object({
 });
 
 /**
- * @summary Update the version of a package in the local repo
+ * @summary Update a package's metadata in the local repo
+ */
+export const UpdatePackageParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdatePackageBody = zod.object({
+  version: zod.string().nullish(),
+  name: zod.string().nullish(),
+  publisher: zod.string().nullish(),
+  description: zod.string().nullish(),
+  license: zod.string().nullish(),
+  licenseUrl: zod.string().nullish(),
+  homepage: zod.string().nullish(),
+  publisherUrl: zod.string().nullish(),
+  publisherSupportUrl: zod.string().nullish(),
+  privacyUrl: zod.string().nullish(),
+  author: zod.string().nullish(),
+  copyright: zod.string().nullish(),
+  copyrightUrl: zod.string().nullish(),
+  moniker: zod.string().nullish(),
+  tags: zod.string().nullish(),
+  installerUrl: zod.string().nullish(),
+  installerSha256: zod.string().nullish(),
+  productCode: zod.string().nullish(),
+});
+
+/**
+ * @summary Update a hosted version entry
+ */
+export const UpdateVersionParams = zod.object({
+  id: zod.coerce.number(),
+  versionId: zod.coerce.number(),
+});
+
+export const UpdateVersionBody = zod.object({
+  version: zod.string().nullish(),
+  installerUrl: zod.string().nullish(),
+  installerSha256: zod.string().nullish(),
+  installerType: zod.string().nullish(),
+  installerLocale: zod.string().nullish(),
+  architecture: zod.string().nullish(),
+  platform: zod.string().nullish(),
+  minimumOsVersion: zod.string().nullish(),
+  packageFamilyName: zod.string().nullish(),
+  productCode: zod.string().nullish(),
+  upgradeCode: zod.string().nullish(),
+  silentSwitch: zod.string().nullish(),
+  silentWithProgressSwitch: zod.string().nullish(),
+  installLocationSwitch: zod.string().nullish(),
+  installModes: zod.string().nullish(),
+  upgradeBehavior: zod.string().nullish(),
+  scope: zod.string().nullish(),
+  elevationRequirement: zod.string().nullish(),
+  releaseDate: zod.string().nullish(),
+});
+
+/**
+ * @summary Update the version of a package in the local repo (legacy)
  */
 export const UpdatePackageVersionParams = zod.object({
   id: zod.coerce.number(),
