@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { eq, ilike, or, and, sql } from "drizzle-orm";
+import { eq, ilike, or, and, sql, inArray } from "drizzle-orm";
 import yaml from "js-yaml";
 import { db, packagesTable, packageVersionsTable } from "@workspace/db";
 import type { Package, PackageVersion } from "@workspace/db";
+import { fetchInstallerManifest } from "./winget";
 
 const router: IRouter = Router();
 
@@ -13,20 +14,21 @@ const router: IRouter = Router();
  */
 const SUPPORTED_VERSIONS = ["1.1.0", "1.4.0", "1.7.0"];
 
-const ZERO_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000";
-
 // ---------------------------------------------------------------------------
 // Manifest builders
 // ---------------------------------------------------------------------------
 
-function buildInstallerManifest(pkg: Package, ver?: PackageVersion) {
-  const version = ver?.version ?? pkg.version;
-  const url = ver?.installerUrl ?? pkg.installerUrl ?? pkg.homepage ?? "";
-  const sha256 = ver?.installerSha256 ?? pkg.installerSha256 ?? ZERO_SHA256;
-  const arch = ver?.architecture ?? "x64";
-  const type = ver?.installerType ?? "exe";
-  const scope = ver?.scope ?? "machine";
-  const productCode = ver?.productCode ?? pkg.productCode;
+/**
+ * Build a single installer entry object for one architecture row.
+ * Used internally by buildInstallerManifest.
+ */
+function buildInstallerEntry(pkg: Package, ver: PackageVersion): Record<string, unknown> {
+  const url = ver.installerUrl ?? pkg.installerUrl ?? pkg.homepage ?? "";
+  const sha256 = ver.installerSha256 ?? pkg.installerSha256 ?? "";
+  const arch = ver.architecture ?? "x64";
+  const type = ver.installerType ?? "exe";
+  const scope = ver.scope ?? "machine";
+  const productCode = ver.productCode ?? pkg.productCode;
 
   const installer: Record<string, unknown> = {
     Architecture: arch,
@@ -36,22 +38,20 @@ function buildInstallerManifest(pkg: Package, ver?: PackageVersion) {
     InstallerSha256: sha256,
   };
 
-  if (ver?.installerLocale) installer.InstallerLocale = ver.installerLocale;
-  if (ver?.platform) installer.Platform = [ver.platform];
-  if (ver?.minimumOsVersion) installer.MinimumOSVersion = ver.minimumOsVersion;
-  if (ver?.packageFamilyName) installer.PackageFamilyName = ver.packageFamilyName;
+  if (ver.installerLocale) installer.InstallerLocale = ver.installerLocale;
+  if (ver.platform) installer.Platform = [ver.platform];
+  if (ver.minimumOsVersion) installer.MinimumOSVersion = ver.minimumOsVersion;
+  if (ver.packageFamilyName) installer.PackageFamilyName = ver.packageFamilyName;
   if (productCode) installer.ProductCode = productCode;
-  if (ver?.upgradeCode) installer.UpgradeCode = ver.upgradeCode;
+  if (ver.upgradeCode) installer.UpgradeCode = ver.upgradeCode;
 
-  // InstallModes: stored as comma-separated string, emitted as array
-  if (ver?.installModes) {
+  if (ver.installModes) {
     installer.InstallModes = ver.installModes.split(",").map((m) => m.trim()).filter(Boolean);
   }
 
-  // InstallerSwitches block
-  const silent = ver?.silentSwitch;
-  const silentProgress = ver?.silentWithProgressSwitch;
-  const installLocation = ver?.installLocationSwitch;
+  const silent = ver.silentSwitch;
+  const silentProgress = ver.silentWithProgressSwitch;
+  const installLocation = ver.installLocationSwitch;
   if (silent || silentProgress || installLocation) {
     const switches: Record<string, string> = {};
     if (silent) switches.Silent = silent;
@@ -60,18 +60,32 @@ function buildInstallerManifest(pkg: Package, ver?: PackageVersion) {
     installer.InstallerSwitches = switches;
   }
 
-  if (ver?.elevationRequirement) installer.ElevationRequirement = ver.elevationRequirement;
+  if (ver.elevationRequirement) installer.ElevationRequirement = ver.elevationRequirement;
+
+  return installer;
+}
+
+/**
+ * Build the installer manifest, supporting multiple architecture rows.
+ * vers[] contains one entry per architecture for the same version.
+ */
+function buildInstallerManifest(pkg: Package, vers: PackageVersion[]): Record<string, unknown> {
+  const version = vers[0]?.version ?? pkg.version;
+  const upgradeBehavior = vers[0]?.upgradeBehavior ?? "install";
+  const releaseDate = vers[0]?.releaseDate ?? null;
+
+  const installers = vers.map((ver) => buildInstallerEntry(pkg, ver));
 
   const manifest: Record<string, unknown> = {
     PackageIdentifier: pkg.packageId,
     PackageVersion: version,
-    UpgradeBehavior: ver?.upgradeBehavior ?? "install",
-    Installers: [installer],
+    UpgradeBehavior: upgradeBehavior,
+    Installers: installers,
     ManifestType: "installer",
     ManifestVersion: "1.4.0",
   };
 
-  if (ver?.releaseDate) manifest.ReleaseDate = ver.releaseDate;
+  if (releaseDate) manifest.ReleaseDate = releaseDate;
 
   return manifest;
 }
@@ -131,16 +145,12 @@ function buildVersionEntry(version: string, pkg: Package) {
   };
 }
 
-function buildManifests(pkg: Package, version: string, versionRow: PackageVersion | null) {
-  const versionManifest = buildVersionManifest(pkg, version);
-  const defaultLocaleManifest = buildDefaultLocaleManifest(pkg, version);
-  const installerManifest = buildInstallerManifest(pkg, versionRow ?? undefined);
-
+function buildManifests(pkg: Package, version: string, versionRows: PackageVersion[]) {
   return {
-    VersionManifest: yaml.dump(versionManifest, { lineWidth: -1 }),
-    DefaultLocaleManifest: yaml.dump(defaultLocaleManifest, { lineWidth: -1 }),
+    VersionManifest: yaml.dump(buildVersionManifest(pkg, version), { lineWidth: -1 }),
+    DefaultLocaleManifest: yaml.dump(buildDefaultLocaleManifest(pkg, version), { lineWidth: -1 }),
     LocaleManifests: [],
-    InstallerManifest: yaml.dump(installerManifest, { lineWidth: -1 }),
+    InstallerManifest: yaml.dump(buildInstallerManifest(pkg, versionRows), { lineWidth: -1 }),
   };
 }
 
@@ -154,8 +164,68 @@ function isValidVersion(v: string): boolean {
 }
 
 /**
- * Returns the list of servable versions for a package.
- * "latest" is NOT a valid winget version and is always excluded from the REST API.
+ * Lazily fetch and persist installer manifest data for a package that has no
+ * version rows yet (added before auto-fetch was introduced).
+ */
+async function lazyFetchVersionRows(pkg: Package, version: string): Promise<PackageVersion[]> {
+  if (!isValidVersion(version)) return [];
+  try {
+    const entries = await fetchInstallerManifest(pkg.packageId, version);
+    if (entries.length === 0) return [];
+
+    // Remove stale rows that have no installer URL (old fallback rows) so that the
+    // upcoming insert can replace them with correct data without hitting unique conflicts.
+    const existingRows = await db.select().from(packageVersionsTable).where(
+      and(eq(packageVersionsTable.packageId, pkg.id), eq(packageVersionsTable.version, version)),
+    );
+    const staleIds = existingRows
+      .filter((r) => !r.installerUrl || r.installerUrl.trim() === "")
+      .map((r) => r.id);
+    if (staleIds.length > 0) {
+      await db.delete(packageVersionsTable).where(inArray(packageVersionsTable.id, staleIds));
+    }
+
+    await db.insert(packageVersionsTable).values(
+      entries.map((e) => ({
+        packageId: pkg.id,
+        version,
+        installerUrl: e.installerUrl,
+        installerSha256: e.installerSha256,
+        installerType: e.installerType,
+        architecture: e.architecture,
+        scope: e.scope,
+        productCode: e.productCode,
+        upgradeCode: e.upgradeCode,
+        packageFamilyName: e.packageFamilyName,
+        silentSwitch: e.silentSwitch,
+        silentWithProgressSwitch: e.silentWithProgressSwitch,
+        installLocationSwitch: e.installLocationSwitch,
+        installModes: e.installModes,
+        upgradeBehavior: e.upgradeBehavior,
+        minimumOsVersion: e.minimumOsVersion,
+        installerLocale: e.installerLocale,
+        releaseDate: e.releaseDate,
+        elevationRequirement: e.elevationRequirement,
+      })),
+    ).onConflictDoNothing();
+
+    // Re-fetch from DB to get the persisted rows (with IDs, addedAt, etc.)
+    return db.select().from(packageVersionsTable).where(
+      and(
+        eq(packageVersionsTable.packageId, pkg.id),
+        eq(packageVersionsTable.version, version),
+        sql`${packageVersionsTable.installerUrl} IS NOT NULL`,
+      ),
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Returns the list of servable versions for a package (deduplicated).
+ * "latest" is NOT a valid winget version and is always excluded.
+ * Falls back to the package-level version only if it has a real installer URL.
  */
 async function resolveVersions(pkg: Package): Promise<string[]> {
   const rows = await db
@@ -164,25 +234,78 @@ async function resolveVersions(pkg: Package): Promise<string[]> {
     .where(eq(packageVersionsTable.packageId, pkg.id));
 
   if (rows.length > 0) {
-    const valid = rows.filter((r) => isValidVersion(r.version));
-    return valid.map((r) => r.version);
+    const valid = rows.filter((r) => isValidVersion(r.version) && r.installerUrl);
+    const stale = rows.filter((r) => !r.installerUrl || r.installerUrl.trim() === "");
+
+    // Remove stale rows (no installer URL) and re-fetch to fill any gaps
+    if (stale.length > 0 && isValidVersion(pkg.version)) {
+      const staleIds = stale.map((r) => r.id);
+      try {
+        await db.delete(packageVersionsTable).where(inArray(packageVersionsTable.id, staleIds));
+        // Re-fetch manifest to fill missing architectures (uses onConflictDoNothing,
+        // so already-correct rows like x86/arm64 won't be overwritten)
+        await lazyFetchVersionRows(pkg, pkg.version);
+      } catch { /* ignore errors, serve what we have */ }
+
+      // Re-read from DB after cleanup+refetch
+      const refreshed = await db
+        .select()
+        .from(packageVersionsTable)
+        .where(and(eq(packageVersionsTable.packageId, pkg.id), sql`${packageVersionsTable.installerUrl} IS NOT NULL`));
+      const uniqueVersions = [...new Set(
+        refreshed.filter((r) => isValidVersion(r.version)).map((r) => r.version),
+      )];
+      if (uniqueVersions.length > 0) return uniqueVersions;
+    }
+
+    const uniqueVersions = [...new Set(valid.map((r) => r.version))];
+    if (uniqueVersions.length > 0) return uniqueVersions;
   }
 
-  // Fall back to the package-level version if it is a real version
-  return isValidVersion(pkg.version) ? [pkg.version] : [];
+  // Package-level fallback: only if version is real and installer URL is set
+  if (isValidVersion(pkg.version) && pkg.installerUrl) {
+    return [pkg.version];
+  }
+
+  // Last resort: try a lazy fetch if we have a real version but no installer data
+  if (isValidVersion(pkg.version)) {
+    const fetched = await lazyFetchVersionRows(pkg, pkg.version);
+    if (fetched.length > 0) {
+      return [pkg.version];
+    }
+  }
+
+  return [];
 }
 
-async function resolveVersionRow(
+/**
+ * Returns all version rows for a specific version of a package.
+ * Multiple rows = multiple architectures.
+ */
+async function resolveVersionRows(
   pkg: Package,
   requestedVersion: string,
-): Promise<{ found: false } | { found: true; versionRow: PackageVersion | null }> {
+): Promise<{ found: false } | { found: true; versionRows: PackageVersion[] }> {
   const rows = await db
     .select()
     .from(packageVersionsTable)
     .where(and(eq(packageVersionsTable.packageId, pkg.id), eq(packageVersionsTable.version, requestedVersion)));
 
-  if (rows.length > 0) return { found: true, versionRow: rows[0] ?? null };
-  if (pkg.version === requestedVersion) return { found: true, versionRow: null };
+  // Only keep rows that have a valid installer URL (filter stale empty-fallback rows)
+  const validRows = rows.filter((r) => r.installerUrl && r.installerUrl.trim() !== "");
+  if (validRows.length > 0) return { found: true, versionRows: validRows };
+
+  // Package-level fallback
+  if (pkg.version === requestedVersion && pkg.installerUrl) {
+    return { found: true, versionRows: [] };
+  }
+
+  // Lazy fetch
+  if (pkg.version === requestedVersion && isValidVersion(requestedVersion)) {
+    const fetched = await lazyFetchVersionRows(pkg, requestedVersion);
+    if (fetched.length > 0) return { found: true, versionRows: fetched };
+  }
+
   return { found: false };
 }
 
@@ -262,11 +385,6 @@ router.get("/information", (_req, res) => {
 /**
  * POST /winget/manifestSearch
  * Called by: winget search, winget show, winget install, winget upgrade, winget list
- *
- * Semantics (from the REST source contract):
- *   - Query       → broad OR search across name/publisher/id
- *   - Inclusions  → OR between items, combined as OR with Query
- *   - Filters     → AND between items, restricts the above results
  */
 router.post("/manifestSearch", async (req, res): Promise<void> => {
   try {
@@ -282,7 +400,6 @@ router.post("/manifestSearch", async (req, res): Promise<void> => {
 
     const maxResults = body?.MaximumResults ?? 50;
 
-    // Build the broad OR clause from Query + Inclusions
     const orClauses: ReturnType<typeof buildFilterCondition>[] = [];
 
     const keyword = body?.Query?.KeyWord ?? "";
@@ -301,14 +418,12 @@ router.post("/manifestSearch", async (req, res): Promise<void> => {
       if (cond) orClauses.push(cond);
     }
 
-    // Build the AND clauses from Filters
     const andClauses: ReturnType<typeof buildFilterCondition>[] = [];
     for (const f of body?.Filters ?? []) {
       const cond = buildFilterCondition(f);
       if (cond) andClauses.push(cond);
     }
 
-    // Combine: (OR clauses) AND (filter clauses)
     const whereClause = (() => {
       const broad = orClauses.length > 0 ? or(...orClauses) : undefined;
       const restrict = andClauses.length > 0 ? and(...andClauses) : undefined;
@@ -316,7 +431,7 @@ router.post("/manifestSearch", async (req, res): Promise<void> => {
       if (broad && restrict) return and(broad, restrict);
       if (broad) return broad;
       if (restrict) return restrict;
-      return undefined; // no filter → return all
+      return undefined;
     })();
 
     const packages = await (whereClause
@@ -330,7 +445,6 @@ router.post("/manifestSearch", async (req, res): Promise<void> => {
       }),
     );
 
-    // Only include packages that have at least one servable version
     const data = resolved
       .filter(({ versions }) => versions.length > 0)
       .map(({ pkg, versions }) => ({
@@ -354,7 +468,6 @@ router.post("/manifestSearch", async (req, res): Promise<void> => {
 /**
  * GET /winget/packageManifests/:packageIdentifier
  * Called by: winget show, winget install, winget upgrade, winget download
- * Returns all versions with full YAML manifests.
  */
 router.get("/packageManifests/:packageIdentifier", async (req, res): Promise<void> => {
   try {
@@ -369,7 +482,6 @@ router.get("/packageManifests/:packageIdentifier", async (req, res): Promise<voi
 
     const versions = await resolveVersions(pkg);
 
-    // No servable version (e.g. stored as "latest" or missing InstallerUrl)
     if (versions.length === 0) {
       res.status(204).end();
       return;
@@ -378,17 +490,55 @@ router.get("/packageManifests/:packageIdentifier", async (req, res): Promise<voi
     const versionData = (
       await Promise.all(
         versions.map(async (version) => {
-          const resolved = await resolveVersionRow(pkg, version);
+          const resolved = await resolveVersionRows(pkg, version);
           if (!resolved.found) return null;
+
+          // If package-level fallback with no version rows, build a synthetic row
+          const rows: PackageVersion[] = resolved.versionRows.length > 0
+            ? resolved.versionRows
+            : pkg.installerUrl
+              ? [{
+                  id: -1,
+                  packageId: pkg.id,
+                  version,
+                  installerUrl: pkg.installerUrl,
+                  installerSha256: pkg.installerSha256,
+                  installerType: "exe",
+                  architecture: "x64",
+                  scope: "machine",
+                  platform: null,
+                  minimumOsVersion: null,
+                  packageFamilyName: null,
+                  productCode: pkg.productCode,
+                  upgradeCode: null,
+                  silentSwitch: null,
+                  silentWithProgressSwitch: null,
+                  installLocationSwitch: null,
+                  installModes: null,
+                  upgradeBehavior: "install",
+                  elevationRequirement: null,
+                  installerLocale: null,
+                  releaseDate: null,
+                  addedAt: new Date(),
+                } as PackageVersion]
+              : [];
+
+          if (rows.length === 0) return null;
+
           return {
             PackageVersion: version,
             DefaultLocale: buildDefaultLocaleShort(pkg),
             Channel: "",
-            Manifests: buildManifests(pkg, version, resolved.versionRow),
+            Manifests: buildManifests(pkg, version, rows),
           };
         }),
       )
     ).filter(Boolean);
+
+    if (versionData.length === 0) {
+      res.status(204).end();
+      return;
+    }
 
     res.json({
       Data: {
@@ -417,8 +567,42 @@ router.get("/packageManifests/:packageIdentifier/:packageVersionId", async (req,
       return;
     }
 
-    const resolved = await resolveVersionRow(pkg, packageVersionId);
+    const resolved = await resolveVersionRows(pkg, packageVersionId);
     if (!resolved.found) {
+      res.status(204).end();
+      return;
+    }
+
+    const rows: PackageVersion[] = resolved.versionRows.length > 0
+      ? resolved.versionRows
+      : pkg.installerUrl
+        ? [{
+            id: -1,
+            packageId: pkg.id,
+            version: packageVersionId,
+            installerUrl: pkg.installerUrl,
+            installerSha256: pkg.installerSha256,
+            installerType: "exe",
+            architecture: "x64",
+            scope: "machine",
+            platform: null,
+            minimumOsVersion: null,
+            packageFamilyName: null,
+            productCode: pkg.productCode,
+            upgradeCode: null,
+            silentSwitch: null,
+            silentWithProgressSwitch: null,
+            installLocationSwitch: null,
+            installModes: null,
+            upgradeBehavior: "install",
+            elevationRequirement: null,
+            installerLocale: null,
+            releaseDate: null,
+            addedAt: new Date(),
+          } as PackageVersion]
+        : [];
+
+    if (rows.length === 0) {
       res.status(204).end();
       return;
     }
@@ -428,10 +612,10 @@ router.get("/packageManifests/:packageIdentifier/:packageVersionId", async (req,
         PackageIdentifier: pkg.packageId,
         Versions: [
           {
-            PackageVersion: resolved.versionRow?.version ?? pkg.version,
+            PackageVersion: packageVersionId,
             DefaultLocale: buildDefaultLocaleShort(pkg),
             Channel: "",
-            Manifests: buildManifests(pkg, resolved.versionRow?.version ?? pkg.version, resolved.versionRow),
+            Manifests: buildManifests(pkg, packageVersionId, rows),
           },
         ],
       },

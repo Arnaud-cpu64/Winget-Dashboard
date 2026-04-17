@@ -38,4 +38,18 @@ A web dashboard for managing a self-hosted WinGet package repository. Users can 
 - `lib/db/src/schema/packages.ts` — DB schema for local packages
 - `artifacts/api-server/src/routes/packages.ts` — Package CRUD routes
 - `artifacts/api-server/src/routes/winget.ts` — Upstream winget search (GitHub Contents API + static popular packages)
+- `artifacts/api-server/src/routes/winget-source.ts` — Winget REST source endpoints (manifestSearch, packageManifests)
 - `artifacts/winget-dashboard/src/` — React frontend
+
+## Deployment
+
+- Docker Compose on 2 internal RHEL9 servers
+- GitHub Actions builds Docker images → GHCR
+- SSH push via `/tmp/wg-push3` clone using `scripts/ssh-git.sh`
+- Push flow: `cd /tmp/wg-push3 && git remote add local /home/runner/workspace && git fetch local main && GIT_SSH_COMMAND=... git push origin <SHA>:refs/heads/main && git push origin <SHA>:refs/tags/vX.X.X`
+
+## Version History
+
+- **v1.0.27** (`f730c89`) — Auto-populate manifest data from winget upstream (filename `{id}.installer.yaml`, YAML Date→YYYY-MM-DD format)
+- **v1.0.28** (`b219365`) — Fix package modal reopening after deletion (blockRowClickRef + setSelectedPkg reset)
+- **v1.0.29** (pending auto-commit) — Fix stale version rows: `resolveVersions` now deletes null-URL rows and re-fetches from manifest to fill missing architectures (e.g. Audacity x64)
