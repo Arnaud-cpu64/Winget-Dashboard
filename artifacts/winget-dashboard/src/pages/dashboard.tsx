@@ -67,6 +67,7 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 export default function Dashboard() {
   const [search, setSearch] = useState("");
   const [selectedPkg, setSelectedPkg] = useState<LocalPackage | null>(null);
+  const blockRowClickRef = React.useRef(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -115,6 +116,7 @@ export default function Dashboard() {
       { id },
       {
         onSuccess: () => {
+          setSelectedPkg((prev) => (prev?.id === id ? null : prev));
           toast({ title: "Package supprimé", description: `${name} retiré du dépôt local.` });
           queryClient.invalidateQueries({ queryKey: getListPackagesQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetPackageStatsQueryKey() });
@@ -397,6 +399,7 @@ export default function Dashboard() {
                         key={pkg.id}
                         className="border-border hover:bg-secondary/20 transition-colors cursor-pointer"
                         onClick={(e) => {
+                          if (blockRowClickRef.current) return;
                           const target = e.target as HTMLElement;
                           if (target.closest("[data-no-modal]")) return;
                           setSelectedPkg(pkg);
@@ -487,7 +490,12 @@ export default function Dashboard() {
                             )}
 
                             {/* Delete */}
-                            <AlertDialog>
+                            <AlertDialog onOpenChange={(open) => {
+                              if (!open) {
+                                blockRowClickRef.current = true;
+                                setTimeout(() => { blockRowClickRef.current = false; }, 300);
+                              }
+                            }}>
                               <AlertDialogTrigger asChild>
                                 <Button
                                   variant="ghost"
