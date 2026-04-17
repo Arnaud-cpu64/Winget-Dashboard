@@ -79,18 +79,32 @@ router.post("/packages", async (req, res): Promise<void> => {
     }
   }
 
+  // Separate package-level fields from version-specific installer fields
+  const {
+    installerType, architecture, scope, upgradeCode,
+    silentSwitch, silentWithProgressSwitch, upgradeBehavior,
+    ...pkgFields
+  } = parsed.data as any;
+
   const [pkg] = await db
     .insert(packagesTable)
-    .values({ ...parsed.data, version: resolvedVersion })
+    .values({ ...pkgFields, version: resolvedVersion })
     .returning();
 
   // Create the matching entry in package_versions so the modal "versions hébergées" is populated
   await db.insert(packageVersionsTable).values({
     packageId: pkg.id,
     version: resolvedVersion,
-    installerUrl: parsed.data.installerUrl ?? null,
-    installerSha256: parsed.data.installerSha256 ?? null,
-    productCode: parsed.data.productCode ?? null,
+    installerUrl: pkgFields.installerUrl ?? null,
+    installerSha256: pkgFields.installerSha256 ?? null,
+    installerType: installerType ?? null,
+    architecture: architecture ?? null,
+    scope: scope ?? null,
+    productCode: pkgFields.productCode ?? null,
+    upgradeCode: upgradeCode ?? null,
+    silentSwitch: silentSwitch ?? null,
+    silentWithProgressSwitch: silentWithProgressSwitch ?? null,
+    upgradeBehavior: upgradeBehavior ?? null,
   }).onConflictDoNothing();
 
   res.status(201).json(GetPackageResponse.parse(pkg));

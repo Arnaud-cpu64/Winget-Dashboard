@@ -86,7 +86,14 @@ export const AddPackageBody = zod.object({
   tags: zod.string().nullish(),
   installerUrl: zod.string().nullish(),
   installerSha256: zod.string().nullish(),
+  installerType: zod.string().nullish(),
+  architecture: zod.string().nullish(),
+  scope: zod.string().nullish(),
   productCode: zod.string().nullish(),
+  upgradeCode: zod.string().nullish(),
+  silentSwitch: zod.string().nullish(),
+  silentWithProgressSwitch: zod.string().nullish(),
+  upgradeBehavior: zod.string().nullish(),
 });
 
 /**

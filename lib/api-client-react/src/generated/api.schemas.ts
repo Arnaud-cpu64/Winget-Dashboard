@@ -47,7 +47,33 @@ export interface AddPackageBody {
   /** @nullable */
   license?: string | null;
   /** @nullable */
+  licenseUrl?: string | null;
+  /** @nullable */
   homepage?: string | null;
+  /** @nullable */
+  moniker?: string | null;
+  /** @nullable */
+  tags?: string | null;
+  /** @nullable */
+  installerUrl?: string | null;
+  /** @nullable */
+  installerSha256?: string | null;
+  /** @nullable */
+  installerType?: string | null;
+  /** @nullable */
+  architecture?: string | null;
+  /** @nullable */
+  scope?: string | null;
+  /** @nullable */
+  productCode?: string | null;
+  /** @nullable */
+  upgradeCode?: string | null;
+  /** @nullable */
+  silentSwitch?: string | null;
+  /** @nullable */
+  silentWithProgressSwitch?: string | null;
+  /** @nullable */
+  upgradeBehavior?: string | null;
 }
 
 export interface PackageStats {

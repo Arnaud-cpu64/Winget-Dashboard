@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { 
-  useSearchWinget, 
+import {
+  useSearchWinget,
   useListPackages,
   useAddPackage,
   getListPackagesQueryKey,
-  getGetPackageStatsQueryKey
+  getGetPackageStatsQueryKey,
 } from "@workspace/api-client-react";
 import { useDebounce } from "@/lib/use-debounce";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,47 +14,62 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search as SearchIcon, Download, Globe, Scale, BookOpen, Database } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { AddPackageDialog, type AddPackageFormData } from "@/components/add-package-dialog";
+
+type SearchPkg = {
+  packageId: string;
+  name: string;
+  publisher: string;
+  version: string;
+  description?: string | null;
+  license?: string | null;
+  homepage?: string | null;
+};
 
 export default function SearchPage() {
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebounce(searchInput, 300);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [dialogPkg, setDialogPkg] = useState<SearchPkg | null>(null);
 
   const { data: searchResults, isLoading: isSearching, isFetching } = useSearchWinget(
     { q: debouncedSearch, limit: 20 },
-    { query: { enabled: debouncedSearch.length > 0 } }
+    { query: { enabled: debouncedSearch.length > 0 } },
   );
 
   const { data: localPackages } = useListPackages();
   const addPackage = useAddPackage();
 
-  // Helper to check if a package is already in local repo
-  const isPackageAdded = (packageId: string) => {
-    return localPackages?.some((p) => p.packageId === packageId) || false;
-  };
+  const isPackageAdded = (packageId: string) =>
+    localPackages?.some((p) => p.packageId === packageId) || false;
 
-  const handleAdd = (pkg: any) => {
-    addPackage.mutate({ data: pkg }, {
-      onSuccess: () => {
-        toast({
-          title: "Package ajouté",
-          description: `${pkg.name} a été ajouté au dépôt local avec succès.`,
-        });
-        queryClient.invalidateQueries({ queryKey: getListPackagesQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetPackageStatsQueryKey() });
+  const handleConfirmAdd = (data: AddPackageFormData) => {
+    addPackage.mutate(
+      { data },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Package ajouté",
+            description: `${data.name} a été ajouté au dépôt local.`,
+          });
+          queryClient.invalidateQueries({ queryKey: getListPackagesQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetPackageStatsQueryKey() });
+          setDialogPkg(null);
+        },
+        onError: (error: any) => {
+          toast({
+            variant: "destructive",
+            title: "Échec de l'ajout",
+            description: error.message || "Une erreur inattendue s'est produite.",
+          });
+        },
       },
-      onError: (error: any) => {
-        toast({
-          variant: "destructive",
-          title: "Échec de l'ajout",
-          description: error.message || "Une erreur inattendue s'est produite.",
-        });
-      }
-    });
+    );
   };
 
   const showLoading = isSearching && isFetching && debouncedSearch.length > 0;
+  const isAdding = addPackage.isPending;
 
   return (
     <div className="space-y-6">
@@ -80,7 +95,7 @@ export default function SearchPage() {
         />
         {isFetching && (
           <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-            <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
+            <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           </div>
         )}
       </div>
@@ -88,7 +103,9 @@ export default function SearchPage() {
       <div className="space-y-4">
         {debouncedSearch.length === 0 ? (
           <div className="h-48 flex items-center justify-center border border-dashed border-border rounded-lg bg-card/20">
-            <p className="text-muted-foreground font-mono text-sm">Saisissez une requête pour parcourir le dépôt officiel.</p>
+            <p className="text-muted-foreground font-mono text-sm">
+              Saisissez une requête pour parcourir le dépôt officiel.
+            </p>
           </div>
         ) : showLoading ? (
           <div className="space-y-3">
@@ -106,16 +123,22 @@ export default function SearchPage() {
           </div>
         ) : searchResults?.length === 0 ? (
           <div className="h-48 flex items-center justify-center border border-dashed border-border rounded-lg bg-card/20">
-            <p className="text-muted-foreground font-mono text-sm">Aucun package trouvé pour « {debouncedSearch} ».</p>
+            <p className="text-muted-foreground font-mono text-sm">
+              Aucun package trouvé pour «&nbsp;{debouncedSearch}&nbsp;».
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
             {searchResults?.map((pkg) => {
               const added = isPackageAdded(pkg.packageId);
-              const isAdding = addPackage.isPending && addPackage.variables?.data?.packageId === pkg.packageId;
+              const isAddingThis =
+                isAdding && addPackage.variables?.data?.packageId === pkg.packageId;
 
               return (
-                <Card key={pkg.packageId} className="bg-card/50 backdrop-blur border-border hover:border-primary/50 transition-colors overflow-hidden group">
+                <Card
+                  key={pkg.packageId}
+                  className="bg-card/50 backdrop-blur border-border hover:border-primary/50 transition-colors overflow-hidden group"
+                >
                   <CardContent className="p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
@@ -127,13 +150,11 @@ export default function SearchPage() {
                       <div className="font-mono text-xs text-primary/80 mb-2 truncate">
                         {pkg.packageId}
                       </div>
-                      
                       {pkg.description && (
                         <p className="text-sm text-muted-foreground line-clamp-2 mb-3 max-w-3xl">
                           {pkg.description}
                         </p>
                       )}
-
                       <div className="flex flex-wrap gap-4 text-xs font-mono text-muted-foreground">
                         {pkg.publisher && (
                           <div className="flex items-center gap-1.5">
@@ -148,9 +169,9 @@ export default function SearchPage() {
                           </div>
                         )}
                         {pkg.homepage && (
-                          <a 
-                            href={pkg.homepage} 
-                            target="_blank" 
+                          <a
+                            href={pkg.homepage}
+                            target="_blank"
                             rel="noreferrer"
                             className="flex items-center gap-1.5 hover:text-primary transition-colors"
                           >
@@ -162,19 +183,19 @@ export default function SearchPage() {
                     </div>
 
                     <div className="flex-shrink-0 w-full sm:w-auto mt-2 sm:mt-0">
-                      <Button 
-                        onClick={() => handleAdd(pkg)} 
-                        disabled={added || isAdding}
+                      <Button
+                        onClick={() => setDialogPkg(pkg as SearchPkg)}
+                        disabled={added || isAddingThis}
                         className={`w-full sm:w-[140px] font-mono ${
-                          added 
-                            ? "bg-secondary text-muted-foreground opacity-100 border-border" 
+                          added
+                            ? "bg-secondary text-muted-foreground opacity-100 border-border"
                             : "bg-primary text-primary-foreground hover:bg-primary/90"
                         }`}
                         variant={added ? "outline" : "default"}
                       >
                         {added ? (
                           "Déjà ajouté"
-                        ) : isAdding ? (
+                        ) : isAddingThis ? (
                           <div className="flex items-center gap-2">
                             <div className="h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
                             Ajout en cours...
@@ -194,6 +215,14 @@ export default function SearchPage() {
           </div>
         )}
       </div>
+
+      <AddPackageDialog
+        pkg={dialogPkg}
+        open={dialogPkg !== null}
+        onClose={() => setDialogPkg(null)}
+        onConfirm={handleConfirmAdd}
+        isAdding={isAdding}
+      />
     </div>
   );
 }
