@@ -148,13 +148,28 @@ function buildManifests(pkg: Package, version: string, versionRow: PackageVersio
 // DB helpers
 // ---------------------------------------------------------------------------
 
+/** Returns true if the given version string is a real (winget-compatible) version. */
+function isValidVersion(v: string): boolean {
+  return v.trim() !== "" && v.toLowerCase() !== "latest";
+}
+
+/**
+ * Returns the list of servable versions for a package.
+ * "latest" is NOT a valid winget version and is always excluded from the REST API.
+ */
 async function resolveVersions(pkg: Package): Promise<string[]> {
   const rows = await db
     .select()
     .from(packageVersionsTable)
     .where(eq(packageVersionsTable.packageId, pkg.id));
 
-  return rows.length > 0 ? rows.map((r) => r.version) : [pkg.version];
+  if (rows.length > 0) {
+    const valid = rows.filter((r) => isValidVersion(r.version));
+    return valid.map((r) => r.version);
+  }
+
+  // Fall back to the package-level version if it is a real version
+  return isValidVersion(pkg.version) ? [pkg.version] : [];
 }
 
 async function resolveVersionRow(
@@ -308,17 +323,22 @@ router.post("/manifestSearch", async (req, res): Promise<void> => {
       ? db.select().from(packagesTable).where(whereClause).limit(maxResults)
       : db.select().from(packagesTable).limit(maxResults));
 
-    const data = await Promise.all(
+    const resolved = await Promise.all(
       packages.map(async (pkg) => {
         const versions = await resolveVersions(pkg);
-        return {
-          PackageIdentifier: pkg.packageId,
-          PackageName: pkg.name,
-          Publisher: pkg.publisher,
-          Versions: versions.map((v) => buildVersionEntry(v, pkg)),
-        };
+        return { pkg, versions };
       }),
     );
+
+    // Only include packages that have at least one servable version
+    const data = resolved
+      .filter(({ versions }) => versions.length > 0)
+      .map(({ pkg, versions }) => ({
+        PackageIdentifier: pkg.packageId,
+        PackageName: pkg.name,
+        Publisher: pkg.publisher,
+        Versions: versions.map((v) => buildVersionEntry(v, pkg)),
+      }));
 
     res.json({
       Data: data,
@@ -343,12 +363,17 @@ router.get("/packageManifests/:packageIdentifier", async (req, res): Promise<voi
 
     const pkg = await findPackage(packageIdentifier);
     if (!pkg) {
-      // winget expects 204 No Content when a package is not found
       res.status(204).end();
       return;
     }
 
     const versions = await resolveVersions(pkg);
+
+    // No servable version (e.g. stored as "latest" or missing InstallerUrl)
+    if (versions.length === 0) {
+      res.status(204).end();
+      return;
+    }
 
     const versionData = (
       await Promise.all(
