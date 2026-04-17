@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
 import { eq, ilike, or, and, sql, inArray } from "drizzle-orm";
-import yaml from "js-yaml";
 import { db, packagesTable, packageVersionsTable } from "@workspace/db";
 import type { Package, PackageVersion } from "@workspace/db";
 import { fetchInstallerManifest } from "./winget";
@@ -19,8 +18,8 @@ const SUPPORTED_VERSIONS = ["1.1.0", "1.4.0", "1.7.0"];
 // ---------------------------------------------------------------------------
 
 /**
- * Build a single installer entry object for one architecture row.
- * Used internally by buildInstallerManifest.
+ * Build a single installer JSON object for one architecture row.
+ * Returns a proper JSON object as required by the winget REST API spec.
  */
 function buildInstallerEntry(pkg: Package, ver: PackageVersion): Record<string, unknown> {
   const url = ver.installerUrl ?? pkg.installerUrl ?? pkg.homepage ?? "";
@@ -33,9 +32,9 @@ function buildInstallerEntry(pkg: Package, ver: PackageVersion): Record<string, 
   const installer: Record<string, unknown> = {
     Architecture: arch,
     InstallerType: type,
-    Scope: scope,
     InstallerUrl: url,
     InstallerSha256: sha256,
+    Scope: scope,
   };
 
   if (ver.installerLocale) installer.InstallerLocale = ver.installerLocale;
@@ -44,6 +43,8 @@ function buildInstallerEntry(pkg: Package, ver: PackageVersion): Record<string, 
   if (ver.packageFamilyName) installer.PackageFamilyName = ver.packageFamilyName;
   if (productCode) installer.ProductCode = productCode;
   if (ver.upgradeCode) installer.UpgradeCode = ver.upgradeCode;
+  if (ver.upgradeBehavior) installer.UpgradeBehavior = ver.upgradeBehavior;
+  if (ver.releaseDate) installer.ReleaseDate = ver.releaseDate;
 
   if (ver.installModes) {
     installer.InstallModes = ver.installModes.split(",").map((m) => m.trim()).filter(Boolean);
@@ -66,91 +67,37 @@ function buildInstallerEntry(pkg: Package, ver: PackageVersion): Record<string, 
 }
 
 /**
- * Build the installer manifest, supporting multiple architecture rows.
- * vers[] contains one entry per architecture for the same version.
+ * Build the DefaultLocale JSON object for a package.
+ * Used in both manifestSearch (short) and packageManifests (full) responses.
  */
-function buildInstallerManifest(pkg: Package, vers: PackageVersion[]): Record<string, unknown> {
-  const version = vers[0]?.version ?? pkg.version;
-  const upgradeBehavior = vers[0]?.upgradeBehavior ?? "install";
-  const releaseDate = vers[0]?.releaseDate ?? null;
-
-  const installers = vers.map((ver) => buildInstallerEntry(pkg, ver));
-
-  const manifest: Record<string, unknown> = {
-    PackageIdentifier: pkg.packageId,
-    PackageVersion: version,
-    UpgradeBehavior: upgradeBehavior,
-    Installers: installers,
-    ManifestType: "installer",
-    ManifestVersion: "1.4.0",
-  };
-
-  if (releaseDate) manifest.ReleaseDate = releaseDate;
-
-  return manifest;
-}
-
-function buildDefaultLocaleManifest(pkg: Package, version: string) {
-  const manifest: Record<string, unknown> = {
-    PackageIdentifier: pkg.packageId,
-    PackageVersion: version,
-    PackageLocale: "en-US",
-    Publisher: pkg.publisher,
-    PackageName: pkg.name,
-    License: pkg.license ?? "Unknown",
-    ShortDescription: pkg.description ?? pkg.name,
-    ManifestType: "defaultLocale",
-    ManifestVersion: "1.4.0",
-  };
-
-  if (pkg.publisherUrl) manifest.PublisherUrl = pkg.publisherUrl;
-  if (pkg.publisherSupportUrl) manifest.PublisherSupportUrl = pkg.publisherSupportUrl;
-  if (pkg.privacyUrl) manifest.PrivacyUrl = pkg.privacyUrl;
-  if (pkg.author) manifest.Author = pkg.author;
-  if (pkg.homepage) manifest.PackageUrl = pkg.homepage;
-  if (pkg.licenseUrl) manifest.LicenseUrl = pkg.licenseUrl;
-  if (pkg.copyright) manifest.Copyright = pkg.copyright;
-  if (pkg.copyrightUrl) manifest.CopyrightUrl = pkg.copyrightUrl;
-  if (pkg.moniker) manifest.Moniker = pkg.moniker;
-  if (pkg.tags) manifest.Tags = pkg.tags.split(",").map((t) => t.trim()).filter(Boolean);
-
-  return manifest;
-}
-
-function buildVersionManifest(pkg: Package, version: string) {
-  return {
-    PackageIdentifier: pkg.packageId,
-    PackageVersion: version,
-    DefaultLocale: "en-US",
-    ManifestType: "version",
-    ManifestVersion: "1.4.0",
-  };
-}
-
-function buildDefaultLocaleShort(pkg: Package) {
-  return {
+function buildDefaultLocale(pkg: Package) {
+  const locale: Record<string, unknown> = {
     PackageLocale: "en-US",
     Publisher: pkg.publisher,
     PackageName: pkg.name,
     License: pkg.license ?? "Unknown",
     ShortDescription: pkg.description ?? pkg.name,
   };
+
+  if (pkg.publisherUrl) locale.PublisherUrl = pkg.publisherUrl;
+  if (pkg.publisherSupportUrl) locale.PublisherSupportUrl = pkg.publisherSupportUrl;
+  if (pkg.privacyUrl) locale.PrivacyUrl = pkg.privacyUrl;
+  if (pkg.author) locale.Author = pkg.author;
+  if (pkg.homepage) locale.PackageUrl = pkg.homepage;
+  if (pkg.licenseUrl) locale.LicenseUrl = pkg.licenseUrl;
+  if (pkg.copyright) locale.Copyright = pkg.copyright;
+  if (pkg.copyrightUrl) locale.CopyrightUrl = pkg.copyrightUrl;
+  if (pkg.moniker) locale.Moniker = pkg.moniker;
+  if (pkg.tags) locale.Tags = pkg.tags.split(",").map((t) => t.trim()).filter(Boolean);
+
+  return locale;
 }
 
 function buildVersionEntry(version: string, pkg: Package) {
   return {
     PackageVersion: version,
-    DefaultLocale: buildDefaultLocaleShort(pkg),
+    DefaultLocale: buildDefaultLocale(pkg),
     Channel: "",
-  };
-}
-
-function buildManifests(pkg: Package, version: string, versionRows: PackageVersion[]) {
-  return {
-    VersionManifest: yaml.dump(buildVersionManifest(pkg, version), { lineWidth: -1 }),
-    DefaultLocaleManifest: yaml.dump(buildDefaultLocaleManifest(pkg, version), { lineWidth: -1 }),
-    LocaleManifests: [],
-    InstallerManifest: yaml.dump(buildInstallerManifest(pkg, versionRows), { lineWidth: -1 }),
   };
 }
 
@@ -527,9 +474,10 @@ router.get("/packageManifests/:packageIdentifier", async (req, res): Promise<voi
 
           return {
             PackageVersion: version,
-            DefaultLocale: buildDefaultLocaleShort(pkg),
             Channel: "",
-            Manifests: buildManifests(pkg, version, rows),
+            DefaultLocale: buildDefaultLocale(pkg),
+            Locales: [],
+            Installers: rows.map((ver) => buildInstallerEntry(pkg, ver)),
           };
         }),
       )
